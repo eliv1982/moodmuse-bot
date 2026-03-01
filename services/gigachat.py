@@ -95,14 +95,15 @@ async def _get_access_token(
     }
     data = {"scope": scope}
 
+    # GigaChat использует самоподписанный сертификат — отключаем проверку SSL
+    connector = aiohttp.TCPConnector(ssl=False)
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
                 auth_url,
                 headers=headers,
                 data=data,
                 timeout=aiohttp.ClientTimeout(total=timeout),
-                ssl=True,
             ) as resp:
                 body = await resp.text()
                 if resp.status != 200:
@@ -123,6 +124,8 @@ async def _get_access_token(
     except aiohttp.ClientError as e:
         logger.exception("GigaChat auth request failed: %s", e)
         raise GigaChatError(f"Auth request failed: {e}") from e
+    finally:
+        await connector.close()
 
 
 async def generate_greeting_text(
@@ -159,14 +162,15 @@ async def generate_greeting_text(
     }
     logger.debug("GigaChat: POST %s", url)
 
+    # GigaChat API — отключаем проверку SSL (самоподписанный сертификат Сбера)
+    connector = aiohttp.TCPConnector(ssl=False)
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
                 url,
                 json=payload,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=timeout),
-                ssl=True,
             ) as resp:
                 text = await resp.text()
                 if resp.status != 200:
@@ -181,6 +185,8 @@ async def generate_greeting_text(
     except aiohttp.ClientError as e:
         logger.exception("GigaChat chat request failed: %s", e)
         raise GigaChatError(f"Request failed: {e}") from e
+    finally:
+        await connector.close()
 
     choices = result.get("choices")
     if not choices or not isinstance(choices, list):
