@@ -1,0 +1,22 @@
+# Git and IDE
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+
+# Env and secrets (на сервере .env создаётся вручную)
+.env
+.env.*
+!.env.example
+
+# Docs and local
+README.md
+DEPLOY.md
+*.md
+.DS_Store
+terminals/

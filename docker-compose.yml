@@ -1,0 +1,8 @@
+# Бот весеннего настроения — запуск: docker compose up -d
+services:
+  bot:
+    build: .
+    image: springpost:latest
+    container_name: springpost
+    env_file: .env
+    restart: unless-stopped
