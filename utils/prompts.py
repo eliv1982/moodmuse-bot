@@ -25,6 +25,9 @@ IMAGE_STYLES = {
     "style_watercolor": "watercolor, soft brush, artistic painting",
     "style_3d": "3D render, modern CGI, smooth lighting",
     "style_botanical": "botanical illustration, natural history, detailed flora",
+    "style_oil": "oil painting, impasto, rich brushstrokes, classical fine art",
+    "style_fantasy_art": "fantasy art, magical, fairy tale, dragons, elves, epic illustration",
+    "style_cinematic": "cinematic, movie still, dramatic lighting, film look, widescreen composition",
 }
 
 IMAGE_STYLE_LABELS = {
@@ -37,21 +40,30 @@ IMAGE_STYLE_LABELS = {
     "style_watercolor": "Акварель",
     "style_3d": "3D-рендер",
     "style_botanical": "Ботаническая иллюстрация",
+    "style_oil": "Масляные краски",
+    "style_fantasy_art": "Фэнтези",
+    "style_cinematic": "Кинематографический",
 }
 
 # Text style callback -> description for GigaChat; button label
 TEXT_STYLES = {
     "text_business": "деловой, официальный, уважительный",
     "text_warm": "душевный, лирический, тёплый",
-    "text_poetry": "в стихах, рифмованные четверостишия",
+    "text_poetry": "в стихах: обязательно рифма (парная или перекрёстная), чёткий ритм, 2–4 строки или четверостишие",
     "text_humor": "с юмором, лёгкий, дружеский",
+    "text_short": "очень кратко, одно-два предложения, по делу",
+    "text_formal": "формальный, нейтральный, без лишних эмоций",
+    "text_emotional": "эмоциональный, тёплый, с пожеланиями от души",
 }
 
 TEXT_STYLE_LABELS = {
     "text_business": "Деловой",
     "text_warm": "Душевный/лирический",
-    "text_poetry": "Стихи",
+    "text_poetry": "Стихи (в рифму)",
     "text_humor": "С юмором",
+    "text_short": "Кратко",
+    "text_formal": "Формальный",
+    "text_emotional": "Эмоциональный",
 }
 
 
@@ -76,8 +88,8 @@ def build_image_prompt(
         # User provided description — use it (assumed already in English from translator)
         base = user_description.strip()
     else:
-        # Auto-generated: beautiful spring card for the occasion
-        base = f"Beautiful spring greeting card{holiday_part}, festive and warm mood"
+        # Auto-generated: festive card for the occasion (any holiday)
+        base = f"Beautiful festive greeting card{holiday_part}, warm mood"
 
     return f"{base}, {style_phrase}, greeting card design, no text on image".strip()
 
@@ -91,16 +103,24 @@ def build_text_system_prompt(occasion: str, text_style_key: str) -> str:
         OCCASION_LOVED: "Обращение к близким: от души, лично, тёпло.",
     }.get(occasion, "Универсальное поздравление.")
 
-    return (
+    base = (
         f"Ты — автор поздравительных текстов. Пиши кратко, без клише, от души. "
         f"Стиль текста: {style_desc}. {occasion_hint} "
-        "Не используй шаблонные фразы. Один короткий абзац или 2–4 строки стихов."
+        "Не используй шаблонные фразы."
     )
+    if text_style_key == "text_poetry":
+        base += (
+            " Стихи обязаны быть в рифму: используй парную (ААББ) или перекрёстную (АБАБ) рифмовку, "
+            "соблюдай ритм (например, 4–5 стоп ямба или хорея). Пиши четверостишие или 2–4 строки. Без рифмы не принимается."
+        )
+    else:
+        base += " Один короткий абзац."
+    return base
 
 
 def build_text_user_prompt(holiday: Optional[str], occasion: str) -> str:
     """User prompt for GigaChat: occasion and holiday."""
-    holiday_part = f"Праздник/повод: {holiday}." if holiday else "Повод: общее весеннее поздравление."
+    holiday_part = f"Праздник/повод: {holiday}." if holiday else "Повод: общее поздравление."
     return (
         f"Напиши текст поздравления. {holiday_part} "
         "Только текст поздравления, без подписи и пояснений."

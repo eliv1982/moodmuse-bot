@@ -1,5 +1,5 @@
 """
-Бот весеннего настроения — персонализированные открытки (ProxyAPI.ru + GigaChat).
+Бот хорошего настроения — открытки с картинкой и подписью к любому празднику (ProxyAPI.ru + GigaChat).
 Entry point: polling mode.
 """
 import asyncio

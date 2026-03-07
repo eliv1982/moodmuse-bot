@@ -1,4 +1,4 @@
-# Бот весеннего настроения — запуск: docker compose up -d
+# Бот хорошего настроения — запуск: docker compose up -d
 services:
   bot:
     build: .

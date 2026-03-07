@@ -1,4 +1,4 @@
-# Бот весеннего настроения (ProxyAPI.ru + GigaChat)
+# Бот хорошего настроения (ProxyAPI.ru + GigaChat)
 FROM python:3.11-slim
 
 WORKDIR /app

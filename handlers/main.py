@@ -14,6 +14,7 @@ from config import get_settings, get_gigachat_credentials
 from handlers.states import CardStates
 from services.gigachat import GigaChatError, generate_greeting_text, small_talk_reply
 from services.proxi import ProxiAPIError, generate_image
+from services.speech_to_text import SpeechToTextError, transcribe_audio
 from utils.prompts import (
     OCCASION_LABELS,
     IMAGE_STYLE_LABELS,
@@ -55,8 +56,15 @@ def image_style_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_watercolor"], callback_data="style_watercolor"),
         InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_3d"], callback_data="style_3d"),
     ]
-    row5 = [InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_botanical"], callback_data="style_botanical")]
-    return InlineKeyboardMarkup(inline_keyboard=[row1, row2, row3, row4, row5])
+    row5 = [
+        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_botanical"], callback_data="style_botanical"),
+        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_oil"], callback_data="style_oil"),
+    ]
+    row6 = [
+        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_fantasy_art"], callback_data="style_fantasy_art"),
+        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_cinematic"], callback_data="style_cinematic"),
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[row1, row2, row3, row4, row5, row6])
 
 
 def text_style_keyboard() -> InlineKeyboardMarkup:
@@ -69,6 +77,11 @@ def text_style_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_poetry"], callback_data="text_poetry"),
             InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_humor"], callback_data="text_humor"),
         ],
+        [
+            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_short"], callback_data="text_short"),
+            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_formal"], callback_data="text_formal"),
+        ],
+        [InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_emotional"], callback_data="text_emotional")],
     ])
 
 
@@ -87,7 +100,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.set_state(CardStates.choosing_occasion)
     logger.info("User %s started bot", message.from_user.id if message.from_user else "?")
     await message.answer(
-        "🌷 Привет! Я бот весеннего настроения. Помогу создать открытку.\n\nВыберите повод:",
+        "🌸 Привет! Я бот хорошего настроения. Создам открытку с картинкой и подписью к любому празднику или поводу.\n\nВыберите, для кого открытка:",
         reply_markup=occasion_keyboard(),
     )
 
@@ -103,7 +116,7 @@ async def on_occasion(cq: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CardStates.image_description)
     logger.debug("User %s chose occasion=%s", cq.from_user.id if cq.from_user else "?", cq.data)
     await cq.message.edit_text(
-        "1) Опишите, что должно быть на картинке (или напишите «придумай сам», я придумаю сам)"
+        "1) Опишите, что должно быть на картинке (текстом или голосовым). Или напишите «придумай сам»."
     )
     await cq.answer()
 
@@ -111,29 +124,121 @@ async def on_occasion(cq: CallbackQuery, state: FSMContext) -> None:
 # ----- Image description (text) -----
 
 
-@router.message(CardStates.image_description)
+@router.message(CardStates.image_description, F.text)
 async def on_image_description(message: Message, state: FSMContext) -> None:
-    if not message.text:
-        await message.answer("Пожалуйста, введите текстом, что должно быть на картинке (или напишите «придумай сам»).")
+    if not message.text or not message.text.strip():
+        await message.answer("Напишите текстом или отправьте голосовое сообщение: что должно быть на картинке (или «придумай сам»).")
         return
-    await state.update_data(image_description=message.text)
+    await state.update_data(image_description=message.text.strip())
     await state.set_state(CardStates.holiday)
-    logger.debug("User %s set image_description (len=%d)", message.from_user.id if message.from_user else "?", len(message.text or ""))
-    await message.answer("2) Какой праздник/повод? (например: 8 Марта, 1 Мая, День рождения компании, «Просто так (начало весны)»)")
+    logger.debug("User %s set image_description (len=%d)", message.from_user.id if message.from_user else "?", len(message.text))
+    await message.answer("2) Какой праздник или повод? (текстом или голосом). Например: Новый год, 8 Марта, 1 Мая, День рождения, юбилей компании, «просто так».")
+
+
+@router.message(CardStates.image_description, F.voice)
+async def on_image_description_voice(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Голосовое сообщение с описанием картинки: скачать → STT → продолжить шаг 2."""
+    if not message.voice:
+        return
+    await message.answer("Распознаю голос…")
+    settings = get_settings()
+    if not settings.PROXI_API_KEY or not settings.PROXI_BASE_URL:
+        await message.answer("Голосовой ввод недоступен: не настроен API распознавания речи.")
+        return
+    try:
+        file = await bot.get_file(message.voice.file_id)
+        bio = await bot.download_file(file.file_path)
+        audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
+        if not audio_bytes:
+            await message.answer("Не удалось загрузить голосовое сообщение.")
+            return
+        ext = (file.file_path or "").split(".")[-1] if file.file_path else "ogg"
+        filename = f"voice.{ext}"
+        text = await transcribe_audio(
+            audio_bytes,
+            api_key=settings.PROXI_API_KEY,
+            base_url=settings.PROXI_BASE_URL,
+            filename=filename,
+        )
+    except SpeechToTextError as e:
+        await message.answer(f"Не удалось распознать голос: {e}")
+        return
+    if not text or not text.strip():
+        await message.answer("Текст не распознан. Напишите описание картинки текстом или попробуйте ещё раз голосом.")
+        return
+    await state.update_data(image_description=text.strip())
+    await state.set_state(CardStates.holiday)
+    logger.debug("User %s set image_description from voice (len=%d)", message.from_user.id if message.from_user else "?", len(text))
+    await message.answer(
+        "Отлично, теперь давай выберем повод. Опиши текстом или направь голосовое сообщение, что это будет. "
+        "Например: Новый год, 8 Марта, 1 Мая, День рождения, юбилей компании, «просто так»."
+    )
 
 
 # ----- Holiday (text) -----
 
 
-@router.message(CardStates.holiday)
+@router.message(CardStates.image_description)
+async def on_image_description_other(message: Message) -> None:
+    """В шаге 1 приняты только текст или голосовое."""
+    await message.answer("Опишите картинку текстом или голосовым сообщением (или напишите «придумай сам»).")
+
+
+@router.message(CardStates.holiday, F.text)
 async def on_holiday(message: Message, state: FSMContext) -> None:
-    if not message.text:
-        await message.answer("Пожалуйста, введите праздник или повод текстом.")
+    if not message.text or not message.text.strip():
+        await message.answer("Напишите праздник/повод текстом или отправьте голосовое сообщение.")
         return
-    await state.update_data(holiday=message.text)
+    await state.update_data(holiday=message.text.strip())
     await state.set_state(CardStates.image_style)
-    logger.debug("User %s set holiday=%s", message.from_user.id if message.from_user else "?", (message.text or "")[:50])
+    logger.debug("User %s set holiday=%s", message.from_user.id if message.from_user else "?", message.text[:50])
     await message.answer("3) Выберите стиль изображения:", reply_markup=image_style_keyboard())
+
+
+@router.message(CardStates.holiday, F.voice)
+async def on_holiday_voice(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Голосовое сообщение с праздником/поводом: скачать → STT → выбор стиля картинки."""
+    if not message.voice:
+        return
+    await message.answer("Распознаю голос…")
+    settings = get_settings()
+    if not settings.PROXI_API_KEY or not settings.PROXI_BASE_URL:
+        await message.answer("Голосовой ввод недоступен: не настроен API распознавания речи.")
+        return
+    try:
+        file = await bot.get_file(message.voice.file_id)
+        bio = await bot.download_file(file.file_path)
+        audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
+        if not audio_bytes:
+            await message.answer("Не удалось загрузить голосовое сообщение.")
+            return
+        ext = (file.file_path or "").split(".")[-1] if file.file_path else "ogg"
+        filename = f"voice.{ext}"
+        text = await transcribe_audio(
+            audio_bytes,
+            api_key=settings.PROXI_API_KEY,
+            base_url=settings.PROXI_BASE_URL,
+            filename=filename,
+        )
+    except SpeechToTextError as e:
+        await message.answer(f"Не удалось распознать голос: {e}")
+        return
+    if not text or not text.strip():
+        await message.answer("Текст не распознан. Напишите праздник/повод текстом или попробуйте ещё раз голосом.")
+        return
+    await state.update_data(holiday=text.strip())
+    await state.set_state(CardStates.image_style)
+    logger.debug("User %s set holiday from voice: %s", message.from_user.id if message.from_user else "?", text[:50])
+    await message.answer(
+        "Отлично. Теперь выберите стиль изображения:",
+        reply_markup=image_style_keyboard(),
+    )
+
+
+@router.message(CardStates.holiday)
+async def on_holiday_other(message: Message) -> None:
+    """В шаге 2 приняты только текст или голосовое."""
+    await message.answer("Напишите праздник/повод текстом или отправьте голосовое сообщение.")
 
 
 # ----- Image style (callback) -----
@@ -259,7 +364,7 @@ async def on_create_another(cq: CallbackQuery, state: FSMContext) -> None:
 # ----- Small talk (registered last: only when no FSM step expects this text) -----
 
 REMINDER_FALLBACK = (
-    "Привет! Я бот весеннего настроения — помогаю создавать поздравительные открытки. "
+    "Привет! Я бот хорошего настроения — помогаю создавать поздравительные открытки к любому поводу. "
     "Отправь /start, чтобы создать открытку с картинкой и текстом."
 )
 

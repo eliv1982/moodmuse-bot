@@ -15,7 +15,9 @@ HOLIDAY_TO_EN = {
     "день рождения": "birthday",
     "новый год": "New Year",
     "начало весны": "beginning of spring",
-    "просто так": "just because, spring mood",
+    "просто так": "just because, festive mood",
+    "юбилей": "anniversary",
+    "день компании": "company day",
 }
 
 # Minimal mapping for common words so image prompt is mostly English
