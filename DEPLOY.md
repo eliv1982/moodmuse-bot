@@ -99,11 +99,14 @@ BOT_TOKEN=ваш_токен_бота
 PROXI_API_KEY=ваш_ключ
 PROXI_BASE_URL=https://openai.api.proxyapi.ru
 
-# GigaChat (ключ из кабинета Сбера)
-GIGACHAT_AUTHORIZATION_KEY=ваш_ключ_авторизации
-GIGACHAT_SCOPE=GIGACHAT_API_PERS
+# Yandex Cloud Foundation Models (текст + улучшение промпта картинки)
+YANDEX_API_KEY=ваш_api_ключ
+YANDEX_FOLDER_ID=b1gxxxxxxxxxxxxxxxxxxxx
 
-# По желанию: LOG_LEVEL=DEBUG
+# Админы (Telegram user id через запятую) — лимиты не действуют, доступ к /stats и др.
+# ADMIN_USER_IDS=123456789
+
+# По желанию: LOG_LEVEL=DEBUG, LOG_JSON=true, DATA_DIR=/app/data
 ```
 
 Сохраните (в nano: `Ctrl+O`, Enter, `Ctrl+X`). Проверьте права:
@@ -198,8 +201,10 @@ cd /home/user/springpost
 Только перезапуск без обновления кода (например, после правки `.env`):
 
 ```bash
-./deploy.sh --restart
+docker compose up -d --force-recreate
 ```
+
+Или: `./deploy.sh --restart` (если используете скрипт).
 
 ### 8.2. Автообновление с локальной машины (через Git + cron)
 
@@ -236,10 +241,33 @@ cd /home/user/springpost
 
 ---
 
-## 10. Проверка работы
+## 10. Проверка, что Yandex-переменные попали в контейнер
+
+После заполнения `.env` в **том же каталоге**, что и `docker-compose.yml`:
+
+```bash
+cd /путь/к/проекту
+docker compose config | grep YANDEX_
+```
+
+Должны отображаться `YANDEX_API_KEY` и `YANDEX_FOLDER_ID` в блоке `environment` сервиса `bot`. Если их нет — строк нет в `.env`, они закомментированы, или правится не тот файл. После правок:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+Проверка длин без вывода секретов:
+
+```bash
+docker compose exec bot sh -c 'echo "YANDEX_API_KEY len=${#YANDEX_API_KEY} YANDEX_FOLDER_ID len=${#YANDEX_FOLDER_ID}"'
+```
+
+---
+
+## 11. Проверка работы бота
 
 1. В Telegram найдите бота по username и отправьте `/start`.
-2. Пройдите сценарий: выбор повода → описание картинки → праздник → стили → проверьте, что приходит открытка.
+2. Пройдите сценарий: **для кого** → описание картинки → праздник/повод → стиль картинки → стиль текста → проверьте открытку.
 3. При ошибках смотрите логи: `docker compose logs -f`.
 
 Готово. Бот работает в фоне и перезапускается при падении или перезагрузке сервера.

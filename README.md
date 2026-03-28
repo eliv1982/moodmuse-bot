@@ -1,121 +1,127 @@
 # SpringPost
 
-Telegram-бот для создания персонализированных поздравительных открыток с помощью двух AI:
+**English:** Telegram bot for personalized greeting cards. **Images** are generated via [ProxyAPI.ru](https://proxyapi.ru) (OpenAI-compatible API, default `gpt-image-1`). **Captions and image-prompt refinement** use **Yandex Cloud Foundation Models** (YandexGPT). Bilingual UI (Russian / English), per-user daily limits, SQLite storage, JSON logging, Docker-ready.
 
-- **Изображение** — ProxiAPI (модель `gpt-image-1-mini`)
-- **Текст** — GigaChat (API Сбера)
+**Русский:** Telegram-бот для персонализированных поздравительных открыток на двух AI-бэкендах: картинка — ProxyAPI, текст и доработка промпта — YandexGPT.
 
-## Требования
+## Features
+
+- Interface and card captions: **Russian / English**
+- Up to **5 generations per user per day** (UTC); admins exempt
+- Photo caption trimmed to **Telegram HTML limit** (1024 chars) with safe escaping
+- **English image prompt refinement** via LLM before ProxyAPI
+- After each card: **repeat** (no extra API), **new caption**, **new image**, create another, change language
+- Admin commands: `/stats`, `/smalltalk_on`, `/smalltalk_off`, `/maintenance …`
+- **JSON logs** with `user_id` and `event` (handy with `docker logs`)
+
+## Requirements
 
 - Python 3.11+
-- Аккаунт Telegram (токен бота через [@BotFather](https://t.me/BotFather))
-- Ключ ProxiAPI
-- Учётные данные GigaChat (client_id и client_secret в [кабинете разработчика Сбера](https://developers.sber.ru/))
+- Telegram bot token ([@BotFather](https://t.me/BotFather))
+- **ProxyAPI.ru** key (images + Whisper for voice)
+- **Yandex Cloud**: folder ID + service account API key with Foundation Models access ([docs](https://yandex.cloud/en/docs/foundation-models/))
 
-## Установка и запуск локально
+## Local setup
 
 ```bash
-# Клонирование / переход в каталог проекта
 cd SpringPost
-
-# Виртуальное окружение (рекомендуется)
 python -m venv .venv
-.venv\Scripts\activate   # Windows
-# source .venv/bin/activate  # Linux/macOS
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate       # Linux/macOS
 
-# Зависимости
 pip install -r requirements.txt
+copy .env.example .env            # Windows: copy; Linux: cp
+# Set BOT_TOKEN, PROXI_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID; optional ADMIN_USER_IDS
 
-# Настройка
-copy .env.example .env
-# Отредактируйте .env: BOT_TOKEN, PROXI_API_KEY, GIGACHAT_CREDENTIALS и т.д.
-
-# Запуск
 python bot.py
 ```
 
-## Сборка и запуск через Docker
-
-### Сборка образа
+Tests:
 
 ```bash
-docker build -t springpost:latest .
+pytest -q
 ```
 
-### Запуск контейнера
+## Docker
 
-Создайте файл `.env` в корне проекта (по образцу `.env.example`), затем:
+From the project directory (same folder as `docker-compose.yml` and `.env`):
 
 ```bash
-docker run --env-file .env --name springpost -d springpost:latest
+docker compose up -d --build
 ```
 
-Или через Docker Compose:
+SQLite and rate-limit data live in volume **`springpost_data`** → `/app/data` in the container.
+
+**Important:** `YANDEX_API_KEY` and `YANDEX_FOLDER_ID` must be in **`.env` next to `docker-compose.yml`**, and the file must be listed as `env_file: .env` for the bot service. After editing `.env`, recreate the container:
 
 ```bash
-docker compose up -d
+docker compose up -d --force-recreate
 ```
 
-Остановка:
+Verify merged config (should list both variables under `bot.environment`):
 
 ```bash
-docker compose down
-# или
-docker stop springpost
+docker compose config | grep YANDEX_
 ```
 
-## Переменные окружения
+VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
 
-| Переменная | Описание |
-|------------|----------|
-| `BOT_TOKEN` | Токен Telegram-бота |
-| `PROXI_API_KEY` | Ключ API ProxiAPI (Proxed.AI) |
-| `PROXI_BASE_URL` | Базовый URL ProxiAPI (по умолчанию `https://api.proxed.ai`) |
-| `GIGACHAT_CREDENTIALS` | Строка `client_id:client_secret` из личного кабинета GigaChat |
-| `GIGACHAT_SCOPE` | Область доступа (по умолчанию `GIGACHAT_API_PERS`) |
+## Environment variables (summary)
 
-## Сценарий работы бота
+| Variable | Description |
+|----------|-------------|
+| `BOT_TOKEN` | Telegram bot token |
+| `PROXI_API_KEY` | ProxyAPI.ru key |
+| `PROXI_BASE_URL` | Default `https://openai.api.proxyapi.ru` |
+| `YANDEX_API_KEY` | Yandex Cloud API key |
+| `YANDEX_FOLDER_ID` | Yandex Cloud folder ID |
+| `ADMIN_USER_IDS` | Comma-separated numeric Telegram user IDs |
+| `DAILY_GENERATION_LIMIT` | Per-user daily cap (default 5) |
+| `DATA_DIR` | SQLite directory |
+| `LOG_JSON` | `true` / `false` log format |
 
-1. Пользователь отправляет `/start`.
-2. Выбор повода: для клиентов/партнёров, для коллег, для близких.
-3. Описание картинки (или «придумай сам»).
-4. Праздник/повод (например, 8 Марта, 1 Мая).
-5. Стиль изображения (реалистичный, мультяшный, акварель и др.).
-6. Стиль текста (деловой, душевный, стихи, с юмором).
-7. Параллельная генерация изображения и текста, отправка открытки и кнопка «Создать ещё одну».
+Full list: **`.env.example`**.
 
-## Структура проекта
+## User flow (5 steps)
+
+1. **`/start`** — language on first visit, then **who the card is for** (inline buttons).
+2. **Image idea** — text or voice, or “surprise me” / «придумай сам».
+3. **Holiday or occasion** — text or voice (e.g. birthday, “just because”).
+4. **Image style** — inline buttons.
+5. **Caption style** — inline buttons → generation (prompt refine + image + caption).
+
+## Project layout
 
 ```
 SpringPost/
-├── bot.py              # Точка входа
-├── config.py           # Настройки из .env
+├── bot.py
+├── config.py
 ├── requirements.txt
+├── pytest.ini
 ├── Dockerfile
 ├── docker-compose.yml
-├── .env.example
-├── handlers/           # Обработчики команд и FSM
-│   ├── __init__.py
+├── DEPLOY.md
+├── handlers/
 │   ├── main.py
+│   ├── admin.py
+│   ├── middlewares.py
+│   ├── filters.py
 │   └── states.py
-├── services/           # API-клиенты
-│   ├── proxi.py        # ProxiAPI (изображения)
-│   └── gigachat.py     # GigaChat (текст)
-└── utils/
-    ├── prompts.py     # Формирование промптов
-    └── translate.py    # Поддержка перевода описания для изображения
+├── services/
+│   ├── proxi.py
+│   ├── yandex_gpt.py
+│   ├── card_generation.py
+│   ├── speech_to_text.py
+│   └── storage.py
+├── utils/
+│   ├── prompts.py
+│   ├── translate.py
+│   ├── i18n.py
+│   ├── logging_config.py
+│   └── bot_commands.py
+└── tests/
 ```
 
-## Деплой на VPS
-
-1. Установите Docker и Docker Compose на сервер.
-2. Скопируйте проект и создайте `.env` с реальными ключами.
-3. Выполните:
-   ```bash
-   docker compose up -d
-   ```
-4. Бот работает в режиме **polling**, webhook не требуется.
-
-## Лицензия
+## License
 
 MIT.

@@ -1,94 +1,150 @@
 """
-Main bot handlers: /start, occasion choice, steps, generation, create another.
+Main bot handlers: language, FSM flow, generation, regen shortcuts, small talk.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from aiogram import Bot, F, Router
-from aiogram.filters import CommandStart
+from aiogram.enums import ParseMode
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from config import get_settings, get_gigachat_credentials
+from config import Settings, get_settings
 from handlers.states import CardStates
-from services.gigachat import GigaChatError, generate_greeting_text, small_talk_reply
-from services.proxi import ProxiAPIError, generate_image
+from services.card_generation import run_card_generation, run_image_only, run_text_only
+from services.proxi import ProxiAPIError
 from services.speech_to_text import SpeechToTextError, transcribe_audio
+from services.storage import LastCardContext, get_storage
+from services.yandex_gpt import YandexGPTError, small_talk_reply
+from utils.i18n import Lang, t
 from utils.prompts import (
-    OCCASION_LABELS,
     IMAGE_STYLE_LABELS,
+    OCCASION_LABELS,
     TEXT_STYLE_LABELS,
-    build_image_prompt,
-    build_text_system_prompt,
-    build_text_user_prompt,
+    image_variation_suffix,
 )
-from utils.translate import translate_holiday_to_english, translate_prompt_to_english
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-# ----- Keyboards -----
+
+def coalesce_lang(raw: Optional[str]) -> Lang:
+    return "en" if raw == "en" else "ru"
 
 
-def occasion_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=OCCASION_LABELS["occasion_clients"], callback_data="occasion_clients")],
-        [InlineKeyboardButton(text=OCCASION_LABELS["occasion_colleagues"], callback_data="occasion_colleagues")],
-        [InlineKeyboardButton(text=OCCASION_LABELS["occasion_loved"], callback_data="occasion_loved")],
-    ])
+def _lbl(pair: tuple[str, str], lang: Lang) -> str:
+    return pair[1] if lang == "en" else pair[0]
 
 
-def image_style_keyboard() -> InlineKeyboardMarkup:
-    row1 = [
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_realistic"], callback_data="style_realistic"),
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_cartoon"], callback_data="style_cartoon"),
-    ]
-    row2 = [
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_humor"], callback_data="style_humor"),
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_fantasy"], callback_data="style_fantasy"),
-    ]
-    row3 = [
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_minimal"], callback_data="style_minimal"),
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_vintage"], callback_data="style_vintage"),
-    ]
-    row4 = [
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_watercolor"], callback_data="style_watercolor"),
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_3d"], callback_data="style_3d"),
-    ]
-    row5 = [
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_botanical"], callback_data="style_botanical"),
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_oil"], callback_data="style_oil"),
-    ]
-    row6 = [
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_fantasy_art"], callback_data="style_fantasy_art"),
-        InlineKeyboardButton(text=IMAGE_STYLE_LABELS["style_cinematic"], callback_data="style_cinematic"),
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=[row1, row2, row3, row4, row5, row6])
+def is_admin_user(uid: int, settings: Settings) -> bool:
+    return uid in settings.admin_ids()
 
 
-def text_style_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_business"], callback_data="text_business"),
-            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_warm"], callback_data="text_warm"),
-        ],
-        [
-            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_poetry"], callback_data="text_poetry"),
-            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_humor"], callback_data="text_humor"),
-        ],
-        [
-            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_short"], callback_data="text_short"),
-            InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_formal"], callback_data="text_formal"),
-        ],
-        [InlineKeyboardButton(text=TEXT_STYLE_LABELS["text_emotional"], callback_data="text_emotional")],
-    ])
+def can_consume_generation(uid: int, settings: Settings) -> bool:
+    if is_admin_user(uid, settings):
+        return True
+    return get_storage().get_daily_count(uid) < settings.DAILY_GENERATION_LIMIT
 
 
-def create_another_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Создать ещё одну", callback_data="create_another")],
-    ])
+def language_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Русский", callback_data="lang_ru"),
+                InlineKeyboardButton(text="English", callback_data="lang_en"),
+            ],
+        ]
+    )
+
+
+def occasion_keyboard(lang: Lang) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_lbl(OCCASION_LABELS["occasion_clients"], lang), callback_data="occasion_clients")],
+            [InlineKeyboardButton(text=_lbl(OCCASION_LABELS["occasion_colleagues"], lang), callback_data="occasion_colleagues")],
+            [InlineKeyboardButton(text=_lbl(OCCASION_LABELS["occasion_loved"], lang), callback_data="occasion_loved")],
+        ]
+    )
+
+
+def image_style_keyboard(lang: Lang) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    keys = list(IMAGE_STYLE_LABELS.keys())
+    for i in range(0, len(keys), 2):
+        row = [
+            InlineKeyboardButton(
+                text=_lbl(IMAGE_STYLE_LABELS[keys[i]], lang),
+                callback_data=keys[i],
+            )
+        ]
+        if i + 1 < len(keys):
+            row.append(
+                InlineKeyboardButton(
+                    text=_lbl(IMAGE_STYLE_LABELS[keys[i + 1]], lang),
+                    callback_data=keys[i + 1],
+                )
+            )
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def text_style_keyboard(lang: Lang) -> InlineKeyboardMarkup:
+    keys = list(TEXT_STYLE_LABELS.keys())
+    rows: list[list[InlineKeyboardButton]] = []
+    for i in range(0, len(keys), 2):
+        if i + 1 < len(keys):
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=_lbl(TEXT_STYLE_LABELS[keys[i]], lang),
+                        callback_data=keys[i],
+                    ),
+                    InlineKeyboardButton(
+                        text=_lbl(TEXT_STYLE_LABELS[keys[i + 1]], lang),
+                        callback_data=keys[i + 1],
+                    ),
+                ]
+            )
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=_lbl(TEXT_STYLE_LABELS[keys[i]], lang),
+                        callback_data=keys[i],
+                    ),
+                ]
+            )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def after_card_keyboard(lang: Lang) -> InlineKeyboardMarkup:
+    # По 1–2 кнопки в ряд — так надёжнее отображается в Telegram
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t("regen_repeat", lang), callback_data="regen_repeat")],
+            [
+                InlineKeyboardButton(text=t("regen_text", lang), callback_data="regen_text"),
+                InlineKeyboardButton(text=t("regen_image", lang), callback_data="regen_image"),
+            ],
+            [
+                InlineKeyboardButton(text=t("create_another", lang), callback_data="create_another"),
+                InlineKeyboardButton(text=t("change_language", lang), callback_data="change_lang"),
+            ],
+        ]
+    )
+
+
+async def _lang_from_state(state: FSMContext, user_id: int) -> Lang:
+    data = await state.get_data()
+    raw = data.get("lang")
+    if raw in ("ru", "en"):
+        return cast(Lang, raw)
+    stored = get_storage().get_user_lang(user_id)
+    return coalesce_lang(stored)
 
 
 # ----- /start -----
@@ -97,60 +153,190 @@ def create_another_keyboard() -> InlineKeyboardMarkup:
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await state.set_state(CardStates.choosing_occasion)
-    logger.info("User %s started bot", message.from_user.id if message.from_user else "?")
-    await message.answer(
-        "🌸 Привет! Я бот хорошего настроения. Создам открытку с картинкой и подписью к любому празднику или поводу.\n\nВыберите, для кого открытка:",
-        reply_markup=occasion_keyboard(),
-    )
+    settings = get_settings()
+    uid = message.from_user.id if message.from_user else 0
+    storage = get_storage()
+    lang_stored = storage.get_user_lang(uid)
+    logger.info("start", extra={"user_id": uid, "event": "start"})
+    if lang_stored in ("ru", "en"):
+        await state.update_data(lang=lang_stored)
+        await state.set_state(CardStates.choosing_occasion)
+        lang = coalesce_lang(lang_stored)
+        await message.answer(
+            t("choose_occasion", lang) + "\n\n" + t("lang_hint", lang),
+            reply_markup=occasion_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    await state.set_state(CardStates.choosing_language)
+    await message.answer(t("start_intro", "ru"), reply_markup=language_keyboard())
 
 
-# ----- Occasion (callback) -----
+# ----- Language -----
+
+
+@router.message(Command("lang"))
+async def cmd_lang(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    cur = coalesce_lang(get_storage().get_user_lang(uid))
+    await state.set_state(CardStates.choosing_language)
+    await message.answer(t("pick_language", cur), reply_markup=language_keyboard())
+    logger.info("cmd_lang", extra={"user_id": uid, "event": "cmd_lang"})
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = coalesce_lang(get_storage().get_user_lang(uid))
+    await message.answer(t("help_text", lang), parse_mode=ParseMode.HTML)
+    logger.info("cmd_help", extra={"user_id": uid, "event": "cmd_help"})
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    storage = get_storage()
+    lang_stored = storage.get_user_lang(uid)
+    lang = coalesce_lang(lang_stored)
+    prev = await state.get_state()
+    await state.clear()
+    if prev is None:
+        await message.answer(t("cancel_nothing", lang))
+        logger.info("cmd_cancel_idle", extra={"user_id": uid, "event": "cmd_cancel"})
+        return
+    if lang_stored in ("ru", "en"):
+        await state.update_data(lang=lang_stored)
+        await state.set_state(CardStates.choosing_occasion)
+        await message.answer(
+            t("cancel_done", lang)
+            + "\n\n"
+            + t("choose_occasion", lang)
+            + "\n\n"
+            + t("lang_hint", lang),
+            reply_markup=occasion_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await state.set_state(CardStates.choosing_language)
+        await message.answer(
+            t("cancel_done", "ru") + "\n\n" + t("start_intro", "ru"),
+            reply_markup=language_keyboard(),
+        )
+    logger.info("cmd_cancel", extra={"user_id": uid, "event": "cmd_cancel"})
+
+
+@router.callback_query(F.data.in_(("lang_ru", "lang_en")))
+async def on_language_chosen(cq: CallbackQuery, state: FSMContext) -> None:
+    if not cq.data or not cq.from_user or not cq.message:
+        return
+    uid = cq.from_user.id
+    lang: Lang = "en" if cq.data == "lang_en" else "ru"
+    get_storage().set_user_lang(uid, lang)
+    await state.update_data(lang=lang)
+    current = await state.get_state()
+    await cq.answer(t("lang_saved_toast", lang))
+
+    if current == CardStates.choosing_language.state:
+        await state.set_state(CardStates.choosing_occasion)
+        try:
+            await cq.message.edit_text(
+                t("choose_occasion", lang) + "\n\n" + t("lang_hint", lang),
+                reply_markup=occasion_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            await cq.message.answer(
+                t("choose_occasion", lang) + "\n\n" + t("lang_hint", lang),
+                reply_markup=occasion_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    try:
+        await cq.message.edit_text(t("lang_saved", lang), reply_markup=None)
+    except Exception:
+        await cq.message.answer(t("lang_saved", lang))
+
+
+@router.callback_query(F.data == "change_lang")
+async def on_change_lang(cq: CallbackQuery, state: FSMContext) -> None:
+    if not cq.from_user or not cq.message:
+        return
+    cur = coalesce_lang(get_storage().get_user_lang(cq.from_user.id))
+    await state.set_state(CardStates.choosing_language)
+    await cq.message.answer(t("pick_language", cur), reply_markup=language_keyboard())
+    await cq.answer()
+
+
+# ----- Occasion -----
+
+
+@router.message(CardStates.choosing_occasion, F.text)
+async def on_occasion_need_buttons(message: Message, state: FSMContext) -> None:
+    """Не даём уйти в small talk: без кнопок «для кого» сценарий не начинается."""
+    txt = (message.text or "").strip()
+    if txt.startswith("/"):
+        return
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
+    await message.answer(t("use_occasion_buttons", lang), reply_markup=occasion_keyboard(lang))
+
+
+@router.message(CardStates.choosing_occasion, F.voice)
+async def on_occasion_need_buttons_voice(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
+    await message.answer(t("use_occasion_buttons", lang), reply_markup=occasion_keyboard(lang))
 
 
 @router.callback_query(F.data.startswith("occasion_"), CardStates.choosing_occasion)
 async def on_occasion(cq: CallbackQuery, state: FSMContext) -> None:
-    if not cq.data:
+    if not cq.data or not cq.message:
         return
+    lang = await _lang_from_state(state, cq.from_user.id)
     await state.update_data(occasion=cq.data)
     await state.set_state(CardStates.image_description)
-    logger.debug("User %s chose occasion=%s", cq.from_user.id if cq.from_user else "?", cq.data)
-    await cq.message.edit_text(
-        "1) Опишите, что должно быть на картинке (текстом или голосовым). Или напишите «придумай сам»."
+    logger.debug(
+        "occasion=%s",
+        cq.data,
+        extra={"user_id": cq.from_user.id, "event": "fsm"},
     )
+    await cq.message.edit_text(t("step1_image", lang), parse_mode=ParseMode.HTML)
     await cq.answer()
 
 
-# ----- Image description (text) -----
+# ----- Image description -----
 
 
 @router.message(CardStates.image_description, F.text)
 async def on_image_description(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
     if not message.text or not message.text.strip():
-        await message.answer("Напишите текстом или отправьте голосовое сообщение: что должно быть на картинке (или «придумай сам»).")
+        await message.answer(t("empty_image_desc", lang))
         return
     await state.update_data(image_description=message.text.strip())
     await state.set_state(CardStates.holiday)
-    logger.debug("User %s set image_description (len=%d)", message.from_user.id if message.from_user else "?", len(message.text))
-    await message.answer("2) Какой праздник или повод? (текстом или голосом). Например: Новый год, 8 Марта, 1 Мая, День рождения, юбилей компании, «просто так».")
+    await message.answer(t("step2_holiday", lang), parse_mode=ParseMode.HTML)
 
 
 @router.message(CardStates.image_description, F.voice)
 async def on_image_description_voice(message: Message, state: FSMContext, bot: Bot) -> None:
-    """Голосовое сообщение с описанием картинки: скачать → STT → продолжить шаг 2."""
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
     if not message.voice:
         return
-    await message.answer("Распознаю голос…")
+    await message.answer(t("voice_recognizing", lang))
     settings = get_settings()
     if not settings.PROXI_API_KEY or not settings.PROXI_BASE_URL:
-        await message.answer("Голосовой ввод недоступен: не настроен API распознавания речи.")
+        await message.answer(t("voice_unavailable", lang))
         return
     try:
         file = await bot.get_file(message.voice.file_id)
         bio = await bot.download_file(file.file_path)
         audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
         if not audio_bytes:
-            await message.answer("Не удалось загрузить голосовое сообщение.")
+            await message.answer(t("voice_dl_fail", lang))
             return
         ext = (file.file_path or "").split(".")[-1] if file.file_path else "ogg"
         filename = f"voice.{ext}"
@@ -159,58 +345,62 @@ async def on_image_description_voice(message: Message, state: FSMContext, bot: B
             api_key=settings.PROXI_API_KEY,
             base_url=settings.PROXI_BASE_URL,
             filename=filename,
+            timeout=settings.STT_TIMEOUT,
         )
     except SpeechToTextError as e:
-        await message.answer(f"Не удалось распознать голос: {e}")
+        await message.answer(t("voice_fail", lang, err=e))
         return
     if not text or not text.strip():
-        await message.answer("Текст не распознан. Напишите описание картинки текстом или попробуйте ещё раз голосом.")
+        await message.answer(t("voice_empty", lang))
         return
     await state.update_data(image_description=text.strip())
     await state.set_state(CardStates.holiday)
-    logger.debug("User %s set image_description from voice (len=%d)", message.from_user.id if message.from_user else "?", len(text))
-    await message.answer(
-        "Отлично, теперь давай выберем повод. Опиши текстом или направь голосовое сообщение, что это будет. "
-        "Например: Новый год, 8 Марта, 1 Мая, День рождения, юбилей компании, «просто так»."
-    )
-
-
-# ----- Holiday (text) -----
+    await message.answer(t("after_voice_holiday", lang), parse_mode=ParseMode.HTML)
 
 
 @router.message(CardStates.image_description)
-async def on_image_description_other(message: Message) -> None:
-    """В шаге 1 приняты только текст или голосовое."""
-    await message.answer("Опишите картинку текстом или голосовым сообщением (или напишите «придумай сам»).")
+async def on_image_description_other(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
+    await message.answer(t("only_text_voice_step1", lang))
+
+
+# ----- Holiday -----
 
 
 @router.message(CardStates.holiday, F.text)
 async def on_holiday(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
     if not message.text or not message.text.strip():
-        await message.answer("Напишите праздник/повод текстом или отправьте голосовое сообщение.")
+        await message.answer(t("empty_holiday", lang))
         return
     await state.update_data(holiday=message.text.strip())
     await state.set_state(CardStates.image_style)
-    logger.debug("User %s set holiday=%s", message.from_user.id if message.from_user else "?", message.text[:50])
-    await message.answer("3) Выберите стиль изображения:", reply_markup=image_style_keyboard())
+    await message.answer(
+        t("step3_image_style", lang),
+        reply_markup=image_style_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(CardStates.holiday, F.voice)
 async def on_holiday_voice(message: Message, state: FSMContext, bot: Bot) -> None:
-    """Голосовое сообщение с праздником/поводом: скачать → STT → выбор стиля картинки."""
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
     if not message.voice:
         return
-    await message.answer("Распознаю голос…")
+    await message.answer(t("voice_recognizing", lang))
     settings = get_settings()
     if not settings.PROXI_API_KEY or not settings.PROXI_BASE_URL:
-        await message.answer("Голосовой ввод недоступен: не настроен API распознавания речи.")
+        await message.answer(t("voice_unavailable", lang))
         return
     try:
         file = await bot.get_file(message.voice.file_id)
         bio = await bot.download_file(file.file_path)
         audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
         if not audio_bytes:
-            await message.answer("Не удалось загрузить голосовое сообщение.")
+            await message.answer(t("voice_dl_fail", lang))
             return
         ext = (file.file_path or "").split(".")[-1] if file.file_path else "ogg"
         filename = f"voice.{ext}"
@@ -219,180 +409,400 @@ async def on_holiday_voice(message: Message, state: FSMContext, bot: Bot) -> Non
             api_key=settings.PROXI_API_KEY,
             base_url=settings.PROXI_BASE_URL,
             filename=filename,
+            timeout=settings.STT_TIMEOUT,
         )
     except SpeechToTextError as e:
-        await message.answer(f"Не удалось распознать голос: {e}")
+        await message.answer(t("voice_fail", lang, err=e))
         return
     if not text or not text.strip():
-        await message.answer("Текст не распознан. Напишите праздник/повод текстом или попробуйте ещё раз голосом.")
+        await message.answer(t("voice_empty", lang))
         return
     await state.update_data(holiday=text.strip())
     await state.set_state(CardStates.image_style)
-    logger.debug("User %s set holiday from voice: %s", message.from_user.id if message.from_user else "?", text[:50])
     await message.answer(
-        "Отлично. Теперь выберите стиль изображения:",
-        reply_markup=image_style_keyboard(),
+        t("after_voice_style", lang),
+        reply_markup=image_style_keyboard(lang),
+        parse_mode=ParseMode.HTML,
     )
 
 
 @router.message(CardStates.holiday)
-async def on_holiday_other(message: Message) -> None:
-    """В шаге 2 приняты только текст или голосовое."""
-    await message.answer("Напишите праздник/повод текстом или отправьте голосовое сообщение.")
+async def on_holiday_other(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
+    await message.answer(t("only_text_voice_step2", lang))
 
 
-# ----- Image style (callback) -----
+# ----- Image style -----
 
 
 @router.callback_query(F.data.startswith("style_"), CardStates.image_style)
 async def on_image_style(cq: CallbackQuery, state: FSMContext) -> None:
-    if not cq.data:
+    if not cq.data or not cq.message or not cq.from_user:
         return
+    lang = await _lang_from_state(state, cq.from_user.id)
     await state.update_data(image_style=cq.data)
     await state.set_state(CardStates.text_style)
-    logger.debug("User %s chose image_style=%s", cq.from_user.id if cq.from_user else "?", cq.data)
-    await cq.message.edit_text("4) Выберите стиль текста:", reply_markup=text_style_keyboard())
+    await cq.message.edit_text(
+        t("step4_text_style", lang),
+        reply_markup=text_style_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
     await cq.answer()
 
 
-# ----- Text style (callback) -> run generation -----
+# ----- Text style -> generation -----
 
 
 @router.callback_query(F.data.startswith("text_"), CardStates.text_style)
 async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    if not cq.data:
+    if not cq.data or not cq.message or not cq.from_user:
         return
+    uid = cq.from_user.id
+    settings = get_settings()
+    lang = await _lang_from_state(state, uid)
+
+    if not settings.PROXI_API_KEY:
+        await cq.answer(t("err_image", lang, err="Proxi API key missing"), show_alert=True)
+        return
+    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
+        await cq.answer(t("yandex_env_missing", lang), show_alert=True)
+        return
+
+    if not can_consume_generation(uid, settings):
+        await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
+        return
+
     await state.update_data(text_style=cq.data)
     await state.set_state(CardStates.generating)
-    logger.info("User %s started generation (text_style=%s)", cq.from_user.id if cq.from_user else "?", cq.data)
-    await cq.message.edit_text("Генерирую открытку…")
+    logger.info("generation_start", extra={"user_id": uid, "event": "generation_start"})
+    await cq.message.edit_text(t("generating", lang), parse_mode=ParseMode.HTML)
     await cq.answer()
 
     data: dict[str, Any] = (await state.get_data()) or {}
-    occasion = data.get("occasion", "")
-    image_description = data.get("image_description", "")
-    holiday = data.get("holiday", "")
-    image_style = data.get("image_style", "style_realistic")
-    text_style = data.get("text_style", "text_warm")
-
-    settings = get_settings()
-
-    # English prompt for image (translate description and holiday for ProxiAPI)
-    desc_en: Optional[str] = None
-    if image_description and image_description.strip().lower() not in ("придумай сам", "придумай сама"):
-        desc_en = translate_prompt_to_english(image_description) or image_description
-    holiday_en = translate_holiday_to_english(holiday) if holiday else None
-    image_prompt = build_image_prompt(occasion, image_style, desc_en, holiday_en or holiday)
-
-    system_prompt = build_text_system_prompt(occasion, text_style)
-    user_prompt = build_text_user_prompt(holiday, occasion)
-
-    async def run_image() -> bytes:
-        return await generate_image(
-            image_prompt,
-            api_key=settings.PROXI_API_KEY,
-            base_url=settings.PROXI_BASE_URL,
-            timeout=120.0,
-        )
-
-    async def run_text() -> str:
-        return await generate_greeting_text(
-            system_prompt,
-            user_prompt,
-            credentials=get_gigachat_credentials(settings),
-            scope=settings.GIGACHAT_SCOPE,
-            api_url=settings.GIGACHAT_API_URL,
-            auth_url=settings.GIGACHAT_AUTH_URL,
-            timeout=60.0,
-        )
+    occasion = str(data.get("occasion", ""))
+    image_description = str(data.get("image_description", ""))
+    holiday = str(data.get("holiday", ""))
+    image_style = str(data.get("image_style", "style_realistic"))
+    text_style = str(data.get("text_style", "text_warm"))
 
     try:
-        logger.info("Running parallel generation (image + text)")
-        image_bytes, greeting_text = await asyncio.gather(run_image(), run_text())
-        logger.info("Generation done: image=%d bytes, text=%d chars", len(image_bytes), len(greeting_text))
+        image_bytes, caption_html, final_prompt = await run_card_generation(
+            settings,
+            occasion=occasion,
+            image_description=image_description,
+            holiday=holiday,
+            image_style=image_style,
+            text_style=text_style,
+            lang=lang,
+            refine_prompt=True,
+            image_prompt_override=None,
+        )
     except ProxiAPIError as e:
-        logger.exception("ProxiAPI failed: %s", e)
-        await cq.message.answer(f"Не удалось сгенерировать изображение. Ошибка: {e}")
+        logger.exception("Proxi failed: %s", e, extra={"user_id": uid, "event": "error"})
+        await cq.message.answer(t("err_image", lang, err=e))
         await state.set_state(CardStates.text_style)
-        await cq.message.edit_text("4) Выберите стиль текста:", reply_markup=text_style_keyboard())
+        await cq.message.answer(
+            t("step4_text_style", lang),
+            reply_markup=text_style_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
         return
-    except GigaChatError as e:
-        logger.exception("GigaChat failed: %s", e)
-        await cq.message.answer(f"Не удалось сгенерировать текст. Ошибка: {e}")
+    except YandexGPTError as e:
+        logger.exception("Yandex failed: %s", e, extra={"user_id": uid, "event": "error"})
+        await cq.message.answer(t("err_text", lang, err=e))
         await state.set_state(CardStates.text_style)
-        await cq.message.edit_text("4) Выберите стиль текста:", reply_markup=text_style_keyboard())
+        await cq.message.answer(
+            t("step4_text_style", lang),
+            reply_markup=text_style_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
         return
     except asyncio.TimeoutError:
-        logger.warning("Generation timeout for user %s", cq.from_user.id if cq.from_user else "?")
-        await cq.message.answer("Превышено время ожидания. Попробуйте позже.")
+        logger.warning("timeout", extra={"user_id": uid, "event": "error"})
+        await cq.message.answer(t("err_timeout", lang))
         await state.set_state(CardStates.text_style)
-        await cq.message.edit_text("4) Выберите стиль текста:", reply_markup=text_style_keyboard())
+        await cq.message.answer(
+            t("step4_text_style", lang),
+            reply_markup=text_style_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
         return
     except Exception as e:
-        logger.exception("Generation failed: %s", e)
-        await cq.message.answer(f"Произошла ошибка: {e}")
+        logger.exception("generation failed: %s", e, extra={"user_id": uid, "event": "error"})
+        await cq.message.answer(t("err_generic", lang, err=e))
         await state.set_state(CardStates.text_style)
-        await cq.message.edit_text("4) Выберите стиль текста:", reply_markup=text_style_keyboard())
+        await cq.message.answer(
+            t("step4_text_style", lang),
+            reply_markup=text_style_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     photo = BufferedInputFile(image_bytes, filename="card.png")
-    await cq.message.delete()
-    await cq.message.answer_photo(
+    try:
+        await cq.message.delete()
+    except Exception:
+        pass
+    sent = await cq.message.answer_photo(
         photo=photo,
-        caption=greeting_text,
-        reply_markup=create_another_keyboard(),
+        caption=caption_html,
+        parse_mode=ParseMode.HTML,
+        reply_markup=after_card_keyboard(lang),
     )
+    fid = sent.photo[-1].file_id if sent.photo else ""
+    ctx = LastCardContext(
+        occasion=occasion,
+        image_description=image_description,
+        holiday=holiday,
+        image_style=image_style,
+        text_style=text_style,
+        lang=lang,
+        image_prompt_en=final_prompt,
+        photo_file_id=fid,
+        caption_html=caption_html,
+    )
+    get_storage().save_last_card(uid, ctx)
+    if not is_admin_user(uid, settings):
+        get_storage().increment_generation(uid)
     await state.set_state(CardStates.choosing_occasion)
-    logger.info("Card sent to user %s", cq.from_user.id if cq.from_user else "?")
+    logger.info("generation_ok", extra={"user_id": uid, "event": "generation_ok"})
 
 
-# ----- Create another (callback) -> back to occasion -----
+# ----- Regen -----
+
+
+def _photo_file_fallback(cq: CallbackQuery, ctx: LastCardContext) -> Optional[str]:
+    if ctx.photo_file_id:
+        return ctx.photo_file_id
+    if cq.message and cq.message.photo:
+        return cq.message.photo[-1].file_id
+    return None
+
+
+@router.callback_query(F.data == "regen_repeat")
+async def regen_repeat(cq: CallbackQuery) -> None:
+    if not cq.from_user or not cq.message:
+        return
+    uid = cq.from_user.id
+    ctx = get_storage().get_last_card(uid)
+    lang = coalesce_lang(ctx.lang if ctx else None)
+    if not ctx or not ctx.photo_file_id or not ctx.caption_html:
+        await cq.answer(t("no_saved_card", lang), show_alert=True)
+        return
+    await cq.answer()
+    await cq.message.answer_photo(
+        photo=ctx.photo_file_id,
+        caption=ctx.caption_html,
+        parse_mode=ParseMode.HTML,
+        reply_markup=after_card_keyboard(coalesce_lang(ctx.lang)),
+    )
+    logger.info("regen_repeat", extra={"user_id": uid, "event": "regen_repeat"})
+
+
+@router.callback_query(F.data == "regen_text")
+async def regen_text(cq: CallbackQuery) -> None:
+    if not cq.from_user or not cq.message:
+        return
+    uid = cq.from_user.id
+    settings = get_settings()
+    ctx = get_storage().get_last_card(uid)
+    lang = coalesce_lang(ctx.lang if ctx else None)
+    if not ctx:
+        await cq.answer(t("no_saved_card", lang), show_alert=True)
+        return
+    if not can_consume_generation(uid, settings):
+        await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
+        return
+    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
+        await cq.answer(t("yandex_env_missing", lang), show_alert=True)
+        return
+    photo_id = _photo_file_fallback(cq, ctx)
+    if not photo_id:
+        await cq.answer("No image reference", show_alert=True)
+        return
+    await cq.answer(t("generating", lang))
+    try:
+        cap = await run_text_only(
+            settings,
+            occasion=ctx.occasion,
+            holiday=ctx.holiday,
+            text_style=ctx.text_style,
+            lang=coalesce_lang(ctx.lang),
+        )
+    except (YandexGPTError, asyncio.TimeoutError) as e:
+        logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
+        await cq.message.answer(t("err_text", lang, err=e))
+        return
+    sent = await cq.message.answer_photo(
+        photo=photo_id,
+        caption=cap,
+        parse_mode=ParseMode.HTML,
+        reply_markup=after_card_keyboard(coalesce_lang(ctx.lang)),
+    )
+    ctx.caption_html = cap
+    if sent.photo:
+        ctx.photo_file_id = sent.photo[-1].file_id
+    get_storage().save_last_card(uid, ctx)
+    if not is_admin_user(uid, settings):
+        get_storage().increment_generation(uid)
+    logger.info("regen_text_ok", extra={"user_id": uid, "event": "regen_text"})
+
+
+@router.callback_query(F.data == "regen_image")
+async def regen_image(cq: CallbackQuery) -> None:
+    if not cq.from_user or not cq.message:
+        return
+    uid = cq.from_user.id
+    settings = get_settings()
+    ctx = get_storage().get_last_card(uid)
+    lang = coalesce_lang(ctx.lang if ctx else None)
+    if not ctx:
+        await cq.answer(t("no_saved_card", lang), show_alert=True)
+        return
+    if not can_consume_generation(uid, settings):
+        await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
+        return
+    if not settings.PROXI_API_KEY:
+        await cq.answer("Proxi not configured", show_alert=True)
+        return
+    base = (ctx.image_prompt_en or "").strip()
+    if not base:
+        await cq.answer(t("no_saved_card", lang), show_alert=True)
+        return
+    new_prompt = f"{base}, {image_variation_suffix()}"
+    await cq.answer(t("generating", lang))
+    try:
+        image_bytes, used = await run_image_only(settings, new_prompt or base)
+    except ProxiAPIError as e:
+        logger.warning("regen_image failed: %s", e, extra={"user_id": uid, "event": "error"})
+        await cq.message.answer(t("err_image", lang, err=e))
+        return
+    except asyncio.TimeoutError:
+        await cq.message.answer(t("err_timeout", lang))
+        return
+    photo = BufferedInputFile(image_bytes, filename="card.png")
+    cap = ctx.caption_html or ""
+    sent = await cq.message.answer_photo(
+        photo=photo,
+        caption=cap,
+        parse_mode=ParseMode.HTML,
+        reply_markup=after_card_keyboard(coalesce_lang(ctx.lang)),
+    )
+    ctx.image_prompt_en = used
+    if sent.photo:
+        ctx.photo_file_id = sent.photo[-1].file_id
+    get_storage().save_last_card(uid, ctx)
+    if not is_admin_user(uid, settings):
+        get_storage().increment_generation(uid)
+    logger.info("regen_image_ok", extra={"user_id": uid, "event": "regen_image"})
+
+
+# ----- Create another -----
 
 
 @router.callback_query(F.data == "create_another")
 async def on_create_another(cq: CallbackQuery, state: FSMContext) -> None:
+    if not cq.from_user or not cq.message:
+        return
+    uid = cq.from_user.id
+    storage = get_storage()
+    lang_s = storage.get_user_lang(uid)
+    lang = coalesce_lang(lang_s)
+    alang: Lang = "en" if lang_s == "en" else "ru"
     await state.clear()
+    await state.update_data(lang=alang)
     await state.set_state(CardStates.choosing_occasion)
-    logger.debug("User %s requested create another", cq.from_user.id if cq.from_user else "?")
     await cq.message.answer(
-        "Выберите повод:",
-        reply_markup=occasion_keyboard(),
+        t("choose_occasion", lang),
+        reply_markup=occasion_keyboard(lang),
+        parse_mode=ParseMode.HTML,
     )
     await cq.answer()
+    logger.info("create_another", extra={"user_id": uid, "event": "create_another"})
 
 
-# ----- Small talk (registered last: only when no FSM step expects this text) -----
+# ----- Choosing language: typed «русский» / «english» or nudge -----
 
-REMINDER_FALLBACK = (
-    "Привет! Я бот хорошего настроения — помогаю создавать поздравительные открытки к любому поводу. "
-    "Отправь /start, чтобы создать открытку с картинкой и текстом."
-)
+
+@router.message(CardStates.choosing_language, F.text)
+async def on_lang_wait_text(message: Message, state: FSMContext) -> None:
+    if not message.text:
+        return
+    uid = message.from_user.id if message.from_user else 0
+    low = message.text.strip().lower()
+    picked: Optional[Lang] = None
+    if low in (
+        "английский",
+        "english",
+        "en",
+        "англ",
+        "in english",
+        "на английском",
+    ):
+        picked = "en"
+    elif low in ("русский", "russian", "ru", "на русском"):
+        picked = "ru"
+    if picked is not None:
+        get_storage().set_user_lang(uid, picked)
+        await state.update_data(lang=picked)
+        await state.set_state(CardStates.choosing_occasion)
+        await message.answer(
+            t("lang_saved", picked)
+            + "\n\n"
+            + t("choose_occasion", picked)
+            + "\n\n"
+            + t("lang_hint", picked),
+            reply_markup=occasion_keyboard(picked),
+            parse_mode=ParseMode.HTML,
+        )
+        logger.info("lang_text_pick", extra={"user_id": uid, "event": "lang_pick_text"})
+        return
+    lang = coalesce_lang(get_storage().get_user_lang(uid))
+    await message.answer(t("pick_language", lang), reply_markup=language_keyboard())
+
+
+@router.message(CardStates.choosing_language)
+async def on_lang_wait_other(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = coalesce_lang(get_storage().get_user_lang(uid))
+    await message.answer(t("pick_language", lang), reply_markup=language_keyboard())
+
+
+# ----- Small talk -----
 
 
 @router.message(F.text)
 async def on_small_talk(message: Message, state: FSMContext) -> None:
-    """
-    Reply to casual messages (greetings, questions) and remind about /start.
-    Runs only when no FSM handler took the message (image_description and holiday handle their states first).
-    """
+    raw = (message.text or "").strip()
+    if raw.startswith("/"):
+        return
     current = await state.get_state()
-    if current == CardStates.image_description.state or current == CardStates.holiday.state:
-        return  # Let the FSM handlers process (they are registered with state filter and run first)
+    # Только «свободный» чат без активного мастера; на choosing_occasion — отдельный handler
+    allowed = {None}
+    if current not in allowed:
+        return
+    uid = message.from_user.id if message.from_user else 0
     settings = get_settings()
-    creds = get_gigachat_credentials(settings)
-    if not creds:
-        await message.answer(REMINDER_FALLBACK)
+    storage = get_storage()
+    lang = coalesce_lang(storage.get_user_lang(uid))
+    if not storage.is_small_talk_enabled():
+        await message.answer(t("reminder_fallback", lang))
+        return
+    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
+        await message.answer(t("reminder_fallback", lang))
         return
     try:
         reply = await small_talk_reply(
-            message.text,
-            credentials=creds,
-            scope=settings.GIGACHAT_SCOPE,
-            api_url=settings.GIGACHAT_API_URL,
-            auth_url=settings.GIGACHAT_AUTH_URL,
+            message.text or "",
+            lang=lang,
+            api_key=settings.YANDEX_API_KEY,
+            folder_id=settings.YANDEX_FOLDER_ID,
+            model_uri=settings.model_uri(),
+            url=settings.YANDEX_COMPLETION_URL,
             timeout=30.0,
         )
-        await message.answer(reply or REMINDER_FALLBACK)
-    except (GigaChatError, asyncio.TimeoutError) as e:
-        logger.warning("Small talk GigaChat failed: %s", e)
-        await message.answer(REMINDER_FALLBACK)
+        await message.answer(reply or t("reminder_fallback", lang))
+    except (YandexGPTError, asyncio.TimeoutError) as e:
+        logger.warning("small_talk failed: %s", e, extra={"user_id": uid, "event": "small_talk_fail"})
+        await message.answer(t("reminder_fallback", lang))
