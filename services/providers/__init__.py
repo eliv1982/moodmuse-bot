@@ -4,6 +4,7 @@ from services.providers.factory import (
     UnknownTextProviderError,
     get_text_provider,
     text_provider_configured,
+    text_provider_preflight_message_key,
 )
 
 __all__ = [
@@ -11,4 +12,5 @@ __all__ = [
     "UnknownTextProviderError",
     "get_text_provider",
     "text_provider_configured",
+    "text_provider_preflight_message_key",
 ]

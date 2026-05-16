@@ -6,6 +6,7 @@ from services.providers.factory import (
     UnknownTextProviderError,
     get_text_provider,
     text_provider_configured,
+    text_provider_preflight_message_key,
 )
 from services.providers.openai_text import OpenAITextProvider
 from services.providers.yandex_text import YandexTextProvider
@@ -61,3 +62,29 @@ def test_text_provider_configured_openai(monkeypatch: pytest.MonkeyPatch) -> Non
     assert not text_provider_configured(
         _settings(TEXT_PROVIDER="openai", OPENAI_API_KEY="")
     )
+
+
+def test_preflight_message_key_yandex() -> None:
+    assert (
+        text_provider_preflight_message_key(_settings())
+        == "yandex_env_missing"
+    )
+
+
+def test_preflight_message_key_openai() -> None:
+    assert (
+        text_provider_preflight_message_key(_settings(TEXT_PROVIDER="openai"))
+        == "text_provider_not_configured"
+    )
+
+
+def test_openai_configured_without_yandex(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("YANDEX_API_KEY", "")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "")
+    s = _settings(
+        TEXT_PROVIDER="openai",
+        OPENAI_API_KEY="sk-test",
+        YANDEX_API_KEY="",
+        YANDEX_FOLDER_ID="",
+    )
+    assert text_provider_configured(s)

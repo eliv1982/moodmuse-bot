@@ -17,9 +17,20 @@ from config import Settings, get_settings
 from handlers.states import CardStates
 from services.card_generation import run_card_generation, run_image_only, run_text_only
 from services.proxi import ProxiAPIError
+from services.providers.factory import (
+    get_text_provider,
+    text_provider_configured,
+    text_provider_preflight_message_key,
+)
+from services.providers.openai_text import OpenAITextError
 from services.speech_to_text import SpeechToTextError, transcribe_audio
 from services.storage import LastCardContext, get_storage
-from services.yandex_gpt import YandexGPTError, small_talk_reply
+from services.yandex_gpt import (
+    SMALL_TALK_SYSTEM_EN,
+    SMALL_TALK_SYSTEM_RU,
+    YandexGPTError,
+    small_talk_reply,
+)
 from utils.i18n import Lang, t
 from utils.prompts import (
     IMAGE_STYLE_LABELS,
@@ -48,6 +59,32 @@ def can_consume_generation(uid: int, settings: Settings) -> bool:
     if is_admin_user(uid, settings):
         return True
     return get_storage().get_daily_count(uid) < settings.DAILY_GENERATION_LIMIT
+
+
+async def _small_talk_reply(settings: Settings, user_message: str, lang: Lang) -> str:
+    """Small talk via active text provider (Yandex or OpenAI)."""
+    name = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    if name == "openai":
+        provider = get_text_provider(settings)
+        system = SMALL_TALK_SYSTEM_EN if lang == "en" else SMALL_TALK_SYSTEM_RU
+        user = user_message or ("Hello" if lang == "en" else "Привет")
+        timeout = min(30.0, settings.OPENAI_TIMEOUT)
+        return await provider.generate_greeting_text(
+            system,
+            user,
+            timeout=timeout,
+            max_tokens=200,
+            temperature=0.5,
+        )
+    return await small_talk_reply(
+        user_message,
+        lang=lang,
+        api_key=settings.YANDEX_API_KEY,
+        folder_id=settings.YANDEX_FOLDER_ID,
+        model_uri=settings.model_uri(),
+        url=settings.YANDEX_COMPLETION_URL,
+        timeout=30.0,
+    )
 
 
 def language_keyboard() -> InlineKeyboardMarkup:
@@ -465,8 +502,11 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     if not settings.PROXI_API_KEY:
         await cq.answer(t("err_image", lang, err="Proxi API key missing"), show_alert=True)
         return
-    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
-        await cq.answer(t("yandex_env_missing", lang), show_alert=True)
+    if not text_provider_configured(settings):
+        await cq.answer(
+            t(text_provider_preflight_message_key(settings), lang),
+            show_alert=True,
+        )
         return
 
     if not can_consume_generation(uid, settings):
@@ -508,8 +548,8 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
             parse_mode=ParseMode.HTML,
         )
         return
-    except YandexGPTError as e:
-        logger.exception("Yandex failed: %s", e, extra={"user_id": uid, "event": "error"})
+    except (YandexGPTError, OpenAITextError) as e:
+        logger.exception("Text provider failed: %s", e, extra={"user_id": uid, "event": "error"})
         await cq.message.answer(t("err_text", lang, err=e))
         await state.set_state(CardStates.text_style)
         await cq.message.answer(
@@ -614,8 +654,11 @@ async def regen_text(cq: CallbackQuery) -> None:
     if not can_consume_generation(uid, settings):
         await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
         return
-    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
-        await cq.answer(t("yandex_env_missing", lang), show_alert=True)
+    if not text_provider_configured(settings):
+        await cq.answer(
+            t(text_provider_preflight_message_key(settings), lang),
+            show_alert=True,
+        )
         return
     photo_id = _photo_file_fallback(cq, ctx)
     if not photo_id:
@@ -630,7 +673,7 @@ async def regen_text(cq: CallbackQuery) -> None:
             text_style=ctx.text_style,
             lang=coalesce_lang(ctx.lang),
         )
-    except (YandexGPTError, asyncio.TimeoutError) as e:
+    except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
         logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
         await cq.message.answer(t("err_text", lang, err=e))
         return
@@ -789,20 +832,12 @@ async def on_small_talk(message: Message, state: FSMContext) -> None:
     if not storage.is_small_talk_enabled():
         await message.answer(t("reminder_fallback", lang))
         return
-    if not settings.YANDEX_API_KEY or not settings.YANDEX_FOLDER_ID:
+    if not text_provider_configured(settings):
         await message.answer(t("reminder_fallback", lang))
         return
     try:
-        reply = await small_talk_reply(
-            message.text or "",
-            lang=lang,
-            api_key=settings.YANDEX_API_KEY,
-            folder_id=settings.YANDEX_FOLDER_ID,
-            model_uri=settings.model_uri(),
-            url=settings.YANDEX_COMPLETION_URL,
-            timeout=30.0,
-        )
+        reply = await _small_talk_reply(settings, message.text or "", lang)
         await message.answer(reply or t("reminder_fallback", lang))
-    except (YandexGPTError, asyncio.TimeoutError) as e:
+    except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
         logger.warning("small_talk failed: %s", e, extra={"user_id": uid, "event": "small_talk_fail"})
         await message.answer(t("reminder_fallback", lang))
