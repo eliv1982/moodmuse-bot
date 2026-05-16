@@ -170,6 +170,16 @@ MESSAGES: dict[str, dict[Lang, str]] = {
             "Check docker-compose env and restart the container."
         ),
     },
+    "text_provider_not_configured": {
+        "ru": (
+            "Провайдер генерации текста не настроен. "
+            "Укажите OPENAI_API_KEY в .env (TEXT_PROVIDER=openai) и перезапустите бота."
+        ),
+        "en": (
+            "Text generation provider is not configured. "
+            "Set OPENAI_API_KEY in .env (TEXT_PROVIDER=openai) and restart the bot."
+        ),
+    },
     "after_voice_style": {
         "ru": "Супер! 🌷 <b>Шаг 4 из 5.</b> Выберите стиль картинки — нажмите кнопку:",
         "en": "Lovely! 🌷 <b>Step 4 of 5.</b> Pick an image style — tap a button:",
