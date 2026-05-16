@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     PROXI_API_KEY: str = ""
     PROXI_BASE_URL: str = "https://openai.api.proxyapi.ru"
 
+    # Text generation provider: yandex (default) or openai
+    TEXT_PROVIDER: str = "yandex"
+
+    # OpenAI (direct API) — used when TEXT_PROVIDER=openai
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_TEXT_MODEL: str = "gpt-4o-mini"
+    OPENAI_TIMEOUT: float = 90.0
+
     # Yandex Cloud Foundation Models (text + prompt refine)
     YANDEX_API_KEY: str = ""
     YANDEX_FOLDER_ID: str = ""
@@ -78,7 +87,13 @@ class Settings(BaseSettings):
             return v
         return Path(str(v))
 
-    @field_validator("YANDEX_API_KEY", "YANDEX_FOLDER_ID", "PROXI_API_KEY", mode="before")
+    @field_validator(
+        "YANDEX_API_KEY",
+        "YANDEX_FOLDER_ID",
+        "PROXI_API_KEY",
+        "OPENAI_API_KEY",
+        mode="before",
+    )
     @classmethod
     def strip_secret_whitespace(cls, v: object) -> object:
         if v is None:
