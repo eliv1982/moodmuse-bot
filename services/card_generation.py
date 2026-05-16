@@ -1,5 +1,5 @@
 """
-Orchestration: refine image prompt (Yandex), parallel image (Proxi) + caption (Yandex).
+Orchestration: refine image prompt + parallel image (Proxi) + caption (text provider).
 """
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ import logging
 from typing import Optional, Tuple
 
 from config import Settings
+from services.providers.factory import get_text_provider, text_provider_configured
+from services.providers.openai_text import OpenAITextError
 from services.proxi import generate_image
-from services.yandex_gpt import YandexGPTError, enhance_image_prompt, generate_greeting_text
+from services.yandex_gpt import YandexGPTError
 from utils.i18n import Lang, surprise_me_phrases
 from utils.prompts import (
     build_image_prompt,
@@ -90,29 +92,37 @@ async def run_card_generation(
             lang=lang,
         )
 
+    text_provider = get_text_provider(settings)
+    refine_timeout = (
+        settings.OPENAI_TIMEOUT
+        if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
+        else settings.YANDEX_PROMPT_REFINE_TIMEOUT
+    )
+
     final_prompt = draft
-    if refine_prompt and settings.YANDEX_API_KEY and settings.YANDEX_FOLDER_ID:
+    if refine_prompt and text_provider_configured(settings):
         try:
-            final_prompt = await enhance_image_prompt(
+            final_prompt = await text_provider.enhance_image_prompt(
                 draft_english_prompt=draft,
                 lang=lang,
-                api_key=settings.YANDEX_API_KEY,
-                folder_id=settings.YANDEX_FOLDER_ID,
-                model_uri=settings.model_uri(),
-                url=settings.YANDEX_COMPLETION_URL,
-                timeout=settings.YANDEX_PROMPT_REFINE_TIMEOUT,
+                timeout=refine_timeout,
             )
-            logger.info("Image prompt refined via Yandex (len=%d)", len(final_prompt))
-        except YandexGPTError as e:
+            logger.info("Image prompt refined (len=%d)", len(final_prompt))
+        except (YandexGPTError, OpenAITextError) as e:
             logger.warning("Prompt refine failed, using draft: %s", e)
             final_prompt = draft
     elif not refine_prompt:
         logger.info("Prompt refine skipped (override path)")
     else:
-        logger.info("Prompt refine skipped (no Yandex config)")
+        logger.info("Prompt refine skipped (text provider not configured)")
 
     system_prompt = build_text_system_prompt(occasion, text_style, lang)
     user_prompt = build_text_user_prompt(holiday, lang)
+    text_timeout = (
+        settings.OPENAI_TIMEOUT
+        if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
+        else settings.YANDEX_TIMEOUT
+    )
 
     async def run_image() -> bytes:
         return await generate_image(
@@ -124,14 +134,10 @@ async def run_card_generation(
         )
 
     async def run_text() -> str:
-        return await generate_greeting_text(
+        return await text_provider.generate_greeting_text(
             system_prompt,
             user_prompt,
-            api_key=settings.YANDEX_API_KEY,
-            folder_id=settings.YANDEX_FOLDER_ID,
-            model_uri=settings.model_uri(),
-            url=settings.YANDEX_COMPLETION_URL,
-            timeout=settings.YANDEX_TIMEOUT,
+            timeout=text_timeout,
             max_tokens=380,
             temperature=0.65,
         )
@@ -163,14 +169,16 @@ async def run_text_only(
     text_style: str,
     lang: Lang,
 ) -> str:
-    raw = await generate_greeting_text(
+    text_provider = get_text_provider(settings)
+    text_timeout = (
+        settings.OPENAI_TIMEOUT
+        if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
+        else settings.YANDEX_TIMEOUT
+    )
+    raw = await text_provider.generate_greeting_text(
         build_text_system_prompt(occasion, text_style, lang),
         build_text_user_prompt(holiday, lang),
-        api_key=settings.YANDEX_API_KEY,
-        folder_id=settings.YANDEX_FOLDER_ID,
-        model_uri=settings.model_uri(),
-        url=settings.YANDEX_COMPLETION_URL,
-        timeout=settings.YANDEX_TIMEOUT,
+        timeout=text_timeout,
         max_tokens=380,
         temperature=0.7,
     )
