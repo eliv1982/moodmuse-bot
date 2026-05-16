@@ -39,3 +39,11 @@ def text_provider_configured(settings: Settings) -> bool:
         (settings.YANDEX_API_KEY or "").strip()
         and (settings.YANDEX_FOLDER_ID or "").strip()
     )
+
+
+def text_provider_preflight_message_key(settings: Settings) -> str:
+    """i18n key shown when text_provider_configured is False."""
+    name = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    if name == "yandex":
+        return "yandex_env_missing"
+    return "text_provider_not_configured"
