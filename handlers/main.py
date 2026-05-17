@@ -22,6 +22,11 @@ from services.providers.factory import (
     text_provider_configured,
     text_provider_preflight_message_key,
 )
+from services.providers.image_factory import (
+    image_provider_configured,
+    image_provider_preflight_message_key,
+)
+from services.providers.openai_image import OpenAIImageError
 from services.providers.openai_text import OpenAITextError
 from services.speech_to_text import SpeechToTextError, transcribe_audio
 from services.storage import LastCardContext, get_storage
@@ -499,8 +504,11 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     settings = get_settings()
     lang = await _lang_from_state(state, uid)
 
-    if not settings.PROXI_API_KEY:
-        await cq.answer(t("err_image", lang, err="Proxi API key missing"), show_alert=True)
+    if not image_provider_configured(settings):
+        await cq.answer(
+            t(image_provider_preflight_message_key(settings), lang),
+            show_alert=True,
+        )
         return
     if not text_provider_configured(settings):
         await cq.answer(
@@ -538,8 +546,8 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
             refine_prompt=True,
             image_prompt_override=None,
         )
-    except ProxiAPIError as e:
-        logger.exception("Proxi failed: %s", e, extra={"user_id": uid, "event": "error"})
+    except (ProxiAPIError, OpenAIImageError) as e:
+        logger.exception("Image provider failed: %s", e, extra={"user_id": uid, "event": "error"})
         await cq.message.answer(t("err_image", lang, err=e))
         await state.set_state(CardStates.text_style)
         await cq.message.answer(
@@ -706,8 +714,11 @@ async def regen_image(cq: CallbackQuery) -> None:
     if not can_consume_generation(uid, settings):
         await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
         return
-    if not settings.PROXI_API_KEY:
-        await cq.answer("Proxi not configured", show_alert=True)
+    if not image_provider_configured(settings):
+        await cq.answer(
+            t(image_provider_preflight_message_key(settings), lang),
+            show_alert=True,
+        )
         return
     base = (ctx.image_prompt_en or "").strip()
     if not base:
@@ -717,7 +728,7 @@ async def regen_image(cq: CallbackQuery) -> None:
     await cq.answer(t("generating", lang))
     try:
         image_bytes, used = await run_image_only(settings, new_prompt or base)
-    except ProxiAPIError as e:
+    except (ProxiAPIError, OpenAIImageError) as e:
         logger.warning("regen_image failed: %s", e, extra={"user_id": uid, "event": "error"})
         await cq.message.answer(t("err_image", lang, err=e))
         return

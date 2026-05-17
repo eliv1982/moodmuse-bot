@@ -180,6 +180,26 @@ MESSAGES: dict[str, dict[Lang, str]] = {
             "Set OPENAI_API_KEY in .env (TEXT_PROVIDER=openai) and restart the bot."
         ),
     },
+    "image_proxi_not_configured": {
+        "ru": (
+            "Генерация изображений недоступна: укажите PROXI_API_KEY в .env "
+            "(IMAGE_PROVIDER=proxi) и перезапустите бота."
+        ),
+        "en": (
+            "Image generation is not configured: set PROXI_API_KEY in .env "
+            "(IMAGE_PROVIDER=proxi) and restart the bot."
+        ),
+    },
+    "image_provider_not_configured": {
+        "ru": (
+            "Провайдер генерации изображений не настроен. "
+            "Укажите OPENAI_API_KEY в .env (IMAGE_PROVIDER=openai) и перезапустите бота."
+        ),
+        "en": (
+            "Image generation provider is not configured. "
+            "Set OPENAI_API_KEY in .env (IMAGE_PROVIDER=openai) and restart the bot."
+        ),
+    },
     "after_voice_style": {
         "ru": "Супер! 🌷 <b>Шаг 4 из 5.</b> Выберите стиль картинки — нажмите кнопку:",
         "en": "Lovely! 🌷 <b>Step 4 of 5.</b> Pick an image style — tap a button:",
