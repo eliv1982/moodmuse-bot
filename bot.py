@@ -13,6 +13,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from config import Settings, get_settings
+from services.providers.stt_factory import normalize_stt_provider_name
 from handlers import admin_router, main_router
 from handlers.middlewares import MaintenanceMiddleware
 from services.storage import init_storage
@@ -70,9 +71,24 @@ def _log_startup_provider_warnings(settings: Settings) -> None:
             extra={"event": "startup", "component": "image_provider"},
         )
 
-    if not proxi_key or not proxi_base:
+    stt_provider = normalize_stt_provider_name(settings.STT_PROVIDER)
+    if stt_provider == "openai":
+        if not openai_key:
+            logger.warning(
+                "Voice input unavailable: set OPENAI_API_KEY (STT_PROVIDER=openai).",
+                extra={"event": "startup", "component": "stt"},
+            )
+    elif stt_provider == "proxiapi":
+        if not proxi_key or not proxi_base:
+            logger.warning(
+                "Voice input unavailable: set PROXI_API_KEY and PROXI_BASE_URL "
+                "(STT_PROVIDER=proxi or STT_PROVIDER=proxiapi).",
+                extra={"event": "startup", "component": "stt"},
+            )
+    else:
         logger.warning(
-            "Voice input unavailable: PROXI_API_KEY and PROXI_BASE_URL required for speech recognition.",
+            "Unknown STT_PROVIDER=%r — voice input may fail.",
+            settings.STT_PROVIDER,
             extra={"event": "startup", "component": "stt"},
         )
 

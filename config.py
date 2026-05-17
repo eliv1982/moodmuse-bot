@@ -85,8 +85,11 @@ class Settings(BaseSettings):
     OPENAI_IMAGE_SIZE: str = "1024x1024"
     OPENAI_IMAGE_TIMEOUT: float = 120.0
 
-    # Speech-to-text
+    # Speech-to-text provider: openai (default) or legacy proxi/proxiapi (ProxyAPI Whisper)
+    STT_PROVIDER: str = "openai"
     STT_TIMEOUT: float = 45.0
+    OPENAI_STT_MODEL: str = "gpt-4o-mini-transcribe"
+    FFMPEG_BINARY: str = "ffmpeg"
 
     @field_validator("DATA_DIR", mode="before")
     @classmethod

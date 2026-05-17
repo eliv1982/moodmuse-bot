@@ -4,7 +4,7 @@
 
 > **Note:** This project was previously called **SpringPost** (repo name `spring-mood-bot`). Docker image/container/volume names may still use the `springpost` prefix until a dedicated deploy rename.
 
-**English:** Bilingual bot (Russian / English) that walks users through a short wizard and generates a **personalized card**: an AI image plus a caption tuned for tone and audience. **Images** use [ProxyAPI.ru](https://proxyapi.ru) (OpenAI-compatible API, default `gpt-image-1`). **Captions and image-prompt refinement** use **Yandex Cloud Foundation Models** (YandexGPT) by default, with an optional **OpenAI** text provider (`TEXT_PROVIDER=openai`). Voice input is supported for text steps (Whisper via ProxyAPI).
+**English:** Bilingual bot (Russian / English) that walks users through a short wizard and generates a **personalized card**: an AI image plus a caption tuned for tone and audience. **Images** use [ProxyAPI.ru](https://proxyapi.ru) (OpenAI-compatible API, default `gpt-image-1`). **Captions and image-prompt refinement** use **Yandex Cloud Foundation Models** (YandexGPT) by default, with an optional **OpenAI** text provider (`TEXT_PROVIDER=openai`). Voice input uses **OpenAI transcriptions** by default (`STT_PROVIDER=openai`) after the user picks **Custom wishes** (text or voice in the same step). **ffmpeg** is required to convert Telegram `.ogg` voice messages to WAV. **ProxyAPI Whisper** remains available as a legacy fallback via `STT_PROVIDER=proxi` (or `STT_PROVIDER=proxiapi`).
 
 **Русский:** Telegram-бот для персональных открыток и поздравлений без «кринжа»: картинка через ProxyAPI, текст и доработка промпта — YandexGPT (или OpenAI при настройке).
 
@@ -24,7 +24,7 @@
 
 - Python 3.11+
 - Telegram bot token ([@BotFather](https://t.me/BotFather))
-- **ProxyAPI.ru** key (images + Whisper for voice)
+- **OpenAI** API key for voice input by default (`STT_PROVIDER=openai`); **ProxyAPI.ru** for images (and legacy voice STT via `STT_PROVIDER=proxi`)
 - **Yandex Cloud** (default text): folder ID + API key with Foundation Models access ([docs](https://yandex.cloud/en/docs/foundation-models/))
 - **OpenAI** (optional text): `OPENAI_API_KEY` when `TEXT_PROVIDER=openai`
 
@@ -85,6 +85,9 @@ VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
 | `OPENAI_TEXT_MODEL` | Default `gpt-4o-mini` |
 | `PROXI_API_KEY` | ProxyAPI.ru key |
 | `PROXI_BASE_URL` | Default `https://openai.api.proxyapi.ru` |
+| `STT_PROVIDER` | `openai` (default); legacy `proxi` / `proxiapi` for ProxyAPI Whisper |
+| `OPENAI_STT_MODEL` | Default `gpt-4o-mini-transcribe` |
+| `FFMPEG_BINARY` | Path to `ffmpeg` for Telegram voice `.ogg` → WAV (default `ffmpeg`) |
 | `YANDEX_API_KEY` | Yandex Cloud API key |
 | `YANDEX_FOLDER_ID` | Yandex Cloud folder ID |
 | `ADMIN_USER_IDS` | Comma-separated numeric Telegram user IDs |
