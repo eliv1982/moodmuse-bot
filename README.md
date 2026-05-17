@@ -1,15 +1,21 @@
-# SpringPost
+# MoodMuse
 
-**English:** Telegram bot for personalized greeting cards. **Images** are generated via [ProxyAPI.ru](https://proxyapi.ru) (OpenAI-compatible API, default `gpt-image-1`). **Captions and image-prompt refinement** use **Yandex Cloud Foundation Models** (YandexGPT). Bilingual UI (Russian / English), per-user daily limits, SQLite storage, JSON logging, Docker-ready.
+**Repository:** `moodmuse-bot` — Telegram AI bot for personal mood cards, greetings, visual wishes, and anti-cringe messages.
 
-**Русский:** Telegram-бот для персонализированных поздравительных открыток на двух AI-бэкендах: картинка — ProxyAPI, текст и доработка промпта — YandexGPT.
+> **Note:** This project was previously called **SpringPost** (repo name `spring-mood-bot`). Docker image/container/volume names may still use the `springpost` prefix until a dedicated deploy rename.
+
+**English:** Bilingual bot (Russian / English) that walks users through a short wizard and generates a **personalized card**: an AI image plus a caption tuned for tone and audience. **Images** use [ProxyAPI.ru](https://proxyapi.ru) (OpenAI-compatible API, default `gpt-image-1`). **Captions and image-prompt refinement** use **Yandex Cloud Foundation Models** (YandexGPT) by default, with an optional **OpenAI** text provider (`TEXT_PROVIDER=openai`). Voice input is supported for text steps (Whisper via ProxyAPI).
+
+**Русский:** Telegram-бот для персональных открыток и поздравлений без «кринжа»: картинка через ProxyAPI, текст и доработка промпта — YandexGPT (или OpenAI при настройке).
 
 ## Features
 
-- Interface and card captions: **Russian / English**
+- **Mood cards & greetings** — occasion, image idea, holiday, image style, caption style
+- Interface and captions: **Russian / English**
 - Up to **5 generations per user per day** (UTC); admins exempt
 - Photo caption trimmed to **Telegram HTML limit** (1024 chars) with safe escaping
-- **English image prompt refinement** via LLM before ProxyAPI
+- **English image prompt refinement** via LLM before image generation
+- **Anti-cringe** guidance in Russian caption prompts (natural tone, no awkward calques)
 - After each card: **repeat** (no extra API), **new caption**, **new image**, create another, change language
 - Admin commands: `/stats`, `/smalltalk_on`, `/smalltalk_off`, `/maintenance …`
 - **JSON logs** with `user_id` and `event` (handy with `docker logs`)
@@ -19,19 +25,21 @@
 - Python 3.11+
 - Telegram bot token ([@BotFather](https://t.me/BotFather))
 - **ProxyAPI.ru** key (images + Whisper for voice)
-- **Yandex Cloud**: folder ID + service account API key with Foundation Models access ([docs](https://yandex.cloud/en/docs/foundation-models/))
+- **Yandex Cloud** (default text): folder ID + API key with Foundation Models access ([docs](https://yandex.cloud/en/docs/foundation-models/))
+- **OpenAI** (optional text): `OPENAI_API_KEY` when `TEXT_PROVIDER=openai`
 
 ## Local setup
 
 ```bash
-cd SpringPost
+git clone <url> moodmuse-bot
+cd moodmuse-bot
 python -m venv .venv
 .venv\Scripts\activate          # Windows
-# source .venv/bin/activate       # Linux/macOS
+# source .venv/bin/activate     # Linux/macOS
 
 pip install -r requirements.txt
-copy .env.example .env            # Windows: copy; Linux: cp
-# Set BOT_TOKEN, PROXI_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID; optional ADMIN_USER_IDS
+copy .env.example .env          # Windows: copy; Linux: cp
+# Set BOT_TOKEN, PROXI_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID; optional ADMIN_USER_IDS, TEXT_PROVIDER
 
 python bot.py
 ```
@@ -50,7 +58,7 @@ From the project directory (same folder as `docker-compose.yml` and `.env`):
 docker compose up -d --build
 ```
 
-SQLite and rate-limit data live in volume **`springpost_data`** → `/app/data` in the container.
+SQLite and rate-limit data live in Docker volume **`springpost_data`** (legacy name) → `/app/data` in the container. The running container is named **`springpost`**; image tag **`springpost:latest`**. See [DEPLOY.md](DEPLOY.md) before renaming these in production.
 
 **Important:** `YANDEX_API_KEY` and `YANDEX_FOLDER_ID` must be in **`.env` next to `docker-compose.yml`**, and the file must be listed as `env_file: .env` for the bot service. After editing `.env`, recreate the container:
 
@@ -71,6 +79,10 @@ VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
 | Variable | Description |
 |----------|-------------|
 | `BOT_TOKEN` | Telegram bot token |
+| `TEXT_PROVIDER` | `yandex` (default) or `openai` for captions / prompt refine |
+| `OPENAI_API_KEY` | OpenAI API key when `TEXT_PROVIDER=openai` |
+| `OPENAI_BASE_URL` | Default `https://api.openai.com/v1` |
+| `OPENAI_TEXT_MODEL` | Default `gpt-4o-mini` |
 | `PROXI_API_KEY` | ProxyAPI.ru key |
 | `PROXI_BASE_URL` | Default `https://openai.api.proxyapi.ru` |
 | `YANDEX_API_KEY` | Yandex Cloud API key |
@@ -93,7 +105,7 @@ Full list: **`.env.example`**.
 ## Project layout
 
 ```
-SpringPost/
+moodmuse-bot/
 ├── bot.py
 ├── config.py
 ├── requirements.txt
@@ -112,7 +124,8 @@ SpringPost/
 │   ├── yandex_gpt.py
 │   ├── card_generation.py
 │   ├── speech_to_text.py
-│   └── storage.py
+│   ├── storage.py
+│   └── providers/
 ├── utils/
 │   ├── prompts.py
 │   ├── translate.py

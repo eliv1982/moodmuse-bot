@@ -1,4 +1,4 @@
-# SpringPost — ProxyAPI (images/STT) + YandexGPT (text / prompt refine)
+# MoodMuse — ProxyAPI (images/STT) + YandexGPT (text / prompt refine)
 FROM python:3.11-slim
 
 WORKDIR /app

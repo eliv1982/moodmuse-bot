@@ -1,6 +1,8 @@
-# Деплой бота «Весеннее настроение» на сервер
+# Деплой MoodMuse на сервер
 
-Пошаговая инструкция по запуску бота в Docker на VPS (Ubuntu/Debian или другой Linux с Docker).
+Пошаговая инструкция по запуску Telegram-бота **MoodMuse** (репозиторий `moodmuse-bot`) в Docker на VPS (Ubuntu/Debian или другой Linux с Docker).
+
+> Ранее проект назывался **SpringPost**. В `docker-compose.yml` по-прежнему используются legacy-имена **`springpost`** (контейнер), **`springpost:latest`** (образ) и **`springpost_data`** (volume). Переименование Docker-сущностей — отдельное решение: при смене имени на сервере с уже существующим volume потребуется миграция данных.
 
 ---
 
@@ -47,15 +49,15 @@ docker compose version
 
 ```bash
 # С вашего ПК (замените user и your-server на свои данные)
-scp -r . user@your-server:/home/user/springpost
+scp -r . user@your-server:/home/user/moodmuse-bot
 ```
 
 Или клонируйте репозиторий на сервер (если код в Git):
 
 ```bash
 ssh user@your-server
-git clone <url-репозитория> springpost
-cd springpost
+git clone <url-репозитория> moodmuse-bot
+cd moodmuse-bot
 ```
 
 ### 3.2. Какие файлы должны быть на сервере
@@ -63,7 +65,7 @@ cd springpost
 Минимальный набор:
 
 ```
-springpost/
+moodmuse-bot/
 ├── .env          # создаёте вручную, см. ниже
 ├── bot.py
 ├── config.py
@@ -85,7 +87,7 @@ springpost/
 На сервере в каталоге проекта:
 
 ```bash
-cd /home/user/springpost
+cd /home/user/moodmuse-bot
 nano .env
 ```
 
@@ -122,7 +124,7 @@ chmod 600 .env
 В каталоге проекта на сервере:
 
 ```bash
-cd /home/user/springpost
+cd /home/user/moodmuse-bot
 docker compose build
 docker compose up -d
 ```
@@ -172,7 +174,7 @@ sudo systemctl is-enabled docker
 sudo systemctl enable docker
 ```
 
-**Как проверить автоперезапуск:** перезагрузите сервер (`sudo reboot`), через 1–2 минуты зайдите по SSH и выполните `docker compose ps` в каталоге проекта — контейнер `springpost` должен быть в состоянии `Up`.
+**Как проверить автоперезапуск:** перезагрузите сервер (`sudo reboot`), через 1–2 минуты зайдите по SSH и выполните `docker compose ps` в каталоге проекта — контейнер **`springpost`** (legacy name в compose) должен быть в состоянии `Up`.
 
 ---
 
@@ -183,7 +185,7 @@ sudo systemctl enable docker
 На сервере в каталоге проекта:
 
 ```bash
-cd /home/user/springpost
+cd /home/user/moodmuse-bot
 git pull
 docker compose build --no-cache
 docker compose up -d
@@ -192,7 +194,7 @@ docker compose up -d
 Или используйте скрипт **`deploy.sh`** (один раз сделайте его исполняемым: `chmod +x deploy.sh`):
 
 ```bash
-cd /home/user/springpost
+cd /home/user/moodmuse-bot
 ./deploy.sh
 ```
 
@@ -223,7 +225,7 @@ docker compose up -d --force-recreate
    ```
    Добавьте строку (подставьте свой путь и пользователя):
    ```cron
-   */5 * * * * cd /home/user/springpost && ./deploy.sh >> /home/user/springpost/deploy.log 2>&1
+   */5 * * * * cd /home/user/moodmuse-bot && ./deploy.sh >> /home/user/moodmuse-bot/deploy.log 2>&1
    ```
    Тогда каждые 5 минут сервер будет делать `git pull`; при появлении новых коммитов скрипт пересоберёт образ и перезапустит бота.
 
