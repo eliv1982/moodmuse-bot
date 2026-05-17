@@ -1,5 +1,5 @@
 """
-Orchestration: refine image prompt + parallel image (Proxi) + caption (text provider).
+Orchestration: refine image prompt + parallel image (image provider) + caption (text provider).
 """
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from typing import Optional, Tuple
 
 from config import Settings
 from services.providers.factory import get_text_provider, text_provider_configured
+from services.providers.image_factory import get_image_provider
 from services.providers.openai_text import OpenAITextError
-from services.proxi import generate_image
 from services.yandex_gpt import YandexGPTError
 from utils.i18n import Lang, surprise_me_phrases
 from utils.prompts import (
@@ -124,14 +124,10 @@ async def run_card_generation(
         else settings.YANDEX_TIMEOUT
     )
 
+    image_provider = get_image_provider(settings)
+
     async def run_image() -> bytes:
-        return await generate_image(
-            final_prompt,
-            api_key=settings.PROXI_API_KEY,
-            base_url=settings.PROXI_BASE_URL,
-            model=settings.PROXI_IMAGE_MODEL,
-            timeout=settings.PROXI_IMAGE_TIMEOUT,
-        )
+        return await image_provider.generate_image(final_prompt)
 
     async def run_text() -> str:
         return await text_provider.generate_greeting_text(
@@ -151,13 +147,8 @@ async def run_image_only(
     settings: Settings,
     image_prompt_en: str,
 ) -> Tuple[bytes, str]:
-    image_bytes = await generate_image(
-        image_prompt_en,
-        api_key=settings.PROXI_API_KEY,
-        base_url=settings.PROXI_BASE_URL,
-        model=settings.PROXI_IMAGE_MODEL,
-        timeout=settings.PROXI_IMAGE_TIMEOUT,
-    )
+    image_provider = get_image_provider(settings)
+    image_bytes = await image_provider.generate_image(image_prompt_en)
     return image_bytes, image_prompt_en
 
 
