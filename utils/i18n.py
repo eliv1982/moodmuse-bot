@@ -83,12 +83,8 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "🎙 Voice",
     },
     "image_idea_custom_prompt": {
-        "ru": "Напишите текстом, что обязательно должно быть на картинке.",
-        "en": "Type what must appear on the image.",
-    },
-    "image_idea_voice_prompt": {
-        "ru": "Отправьте голосовое сообщение с описанием картинки.",
-        "en": "Send a voice message describing the image.",
+        "ru": "Напиши текстом или отправь голосовое сообщение с описанием картинки.",
+        "en": "Type your image wishes or send a voice message.",
     },
     "image_idea_use_buttons": {
         "ru": "Выберите вариант кнопкой ниже.",
@@ -197,8 +193,24 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "The bot is temporarily unavailable. Sorry for the inconvenience!",
     },
     "voice_recognizing": {
-        "ru": "Уже слушаю и распознаю голос…",
-        "en": "Listening and transcribing…",
+        "ru": "Уже слушаю и распознаю голос...",
+        "en": "Listening and transcribing your voice...",
+    },
+    "voice_confirm_prompt": {
+        "ru": "Я распознала так:\n\n«{text}»\n\nВсё верно?",
+        "en": 'I recognized this:\n\n"{text}"\n\nIs that correct?',
+    },
+    "btn_voice_confirm_ok": {
+        "ru": "✅ Всё верно",
+        "en": "✅ Looks right",
+    },
+    "btn_voice_confirm_retry": {
+        "ru": "🔁 Записать заново",
+        "en": "🔁 Record again",
+    },
+    "btn_voice_confirm_type": {
+        "ru": "✍️ Написать текстом",
+        "en": "✍️ Type instead",
     },
     "voice_unavailable": {
         "ru": "Голосовой ввод недоступен: не настроен API распознавания речи.",
@@ -281,12 +293,12 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "Enter an occasion: a holiday, date, or phrases like “just because” / “for a good mood” (text or voice).",
     },
     "voice_fail": {
-        "ru": "Не удалось распознать голос: {err}",
-        "en": "Could not transcribe voice: {err}",
+        "ru": "Не получилось обработать голос. Попробуй ещё раз или напиши текстом.",
+        "en": "I couldn't process the voice message. Please try again or type your text.",
     },
     "voice_empty": {
-        "ru": "Текст не распознан. Напишите текстом или попробуйте ещё раз голосом.",
-        "en": "No text recognized. Please type or try voice again.",
+        "ru": "Не удалось распознать голос. Попробуй ещё раз или напиши текстом.",
+        "en": "I couldn't recognize the voice message. Please try again or type your text.",
     },
     "voice_dl_fail": {
         "ru": "Не удалось загрузить голосовое сообщение.",

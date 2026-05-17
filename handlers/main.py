@@ -29,16 +29,46 @@ from services.providers.image_factory import (
 )
 from services.providers.openai_image import OpenAIImageError
 from services.providers.openai_text import OpenAITextError
-from services.speech_to_text import SpeechToTextError, transcribe_audio
+from services.providers.stt_factory import SpeechToTextError, stt_configured, transcribe_audio
 from services.storage import LastCardContext, get_storage
 from services.yandex_gpt import YandexGPTError
 from utils.i18n import Lang, t
 from utils.wizard_input import is_small_talk_text, validate_holiday, validate_image_description
 from utils.wizard_summary import build_generation_summary
+from utils.active_text_prompt import (
+    ACTIVE_TEXT_PROMPT_CHAT_ID_KEY,
+    ACTIVE_TEXT_PROMPT_FIELD_KEY,
+    ACTIVE_TEXT_PROMPT_MESSAGE_ID_KEY,
+    TEXT_FIELD_HOLIDAY,
+    TEXT_FIELD_IMAGE,
+    active_text_prompt_payload,
+    clear_active_text_prompt_payload,
+    text_field_for_prompt_kind,
+)
+from utils.voice_confirm import (
+    PENDING_VOICE_CHAT_ID_KEY,
+    PENDING_VOICE_CONFIRM_MESSAGE_ID_KEY,
+    PENDING_VOICE_FIELD_KEY,
+    PENDING_VOICE_SOURCE_MESSAGE_ID_KEY,
+    PENDING_VOICE_TEXT_KEY,
+    VOICE_CONFIRM_CALLBACKS,
+    VOICE_CONFIRM_OK,
+    VOICE_CONFIRM_RETRY,
+    VOICE_CONFIRM_TYPE,
+    VOICE_FIELD_HOLIDAY,
+    VOICE_FIELD_IMAGE,
+    clear_pending_voice_payload,
+    field_prompt_for_voice_field,
+    format_voice_confirm_prompt,
+    pending_voice_payload,
+    read_pending_voice_snapshot,
+    state_matches_pending_field,
+    voice_confirm_keyboard,
+)
+from utils.voice_stt import voice_stt_user_message
 from utils.wizard_ui import (
     IMAGE_IDEA_CUSTOM,
     IMAGE_IDEA_SURPRISE,
-    IMAGE_IDEA_VOICE,
     image_idea_keyboard,
 )
 from utils.prompts import (
@@ -89,6 +119,28 @@ async def _collapse_callback_message(
             pass
 
 
+async def _register_active_text_prompt(
+    state: FSMContext,
+    sent: Message,
+    prompt_kind: str | None,
+) -> None:
+    field = text_field_for_prompt_kind(prompt_kind)
+    if not field:
+        return
+    await state.update_data(
+        **active_text_prompt_payload(field, sent.chat.id, sent.message_id)
+    )
+
+
+async def _delete_active_text_prompt(bot: Bot, state: FSMContext) -> None:
+    data = await state.get_data()
+    chat_id = data.get(ACTIVE_TEXT_PROMPT_CHAT_ID_KEY)
+    msg_id = data.get(ACTIVE_TEXT_PROMPT_MESSAGE_ID_KEY)
+    if chat_id is not None and msg_id is not None:
+        await _safe_delete_message(bot, int(chat_id), int(msg_id))
+    await state.update_data(**clear_active_text_prompt_payload())
+
+
 async def _store_prompt_message(
     state: FSMContext,
     sent: Message,
@@ -102,6 +154,7 @@ async def _store_prompt_message(
     if prompt_kind is not None:
         payload["prompt_kind"] = prompt_kind
     await state.update_data(**payload)
+    await _register_active_text_prompt(state, sent, prompt_kind)
 
 
 async def _clear_stored_prompt(state: FSMContext) -> None:
@@ -128,6 +181,11 @@ async def _send_wizard_prompt(
     *,
     prompt_kind: str | None = None,
 ) -> Message:
+    field = text_field_for_prompt_kind(prompt_kind)
+    if field:
+        data = await state.get_data()
+        if data.get(ACTIVE_TEXT_PROMPT_FIELD_KEY) == field:
+            await _delete_active_text_prompt(anchor.bot, state)
     sent = await anchor.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     await _store_prompt_message(state, sent, prompt_kind=prompt_kind)
     return sent
@@ -166,9 +224,22 @@ async def _replace_stored_prompt(
     *,
     prompt_kind: str | None = None,
 ) -> None:
+    field = text_field_for_prompt_kind(prompt_kind)
+    if field:
+        data = await state.get_data()
+        if data.get(ACTIVE_TEXT_PROMPT_FIELD_KEY) == field:
+            await _delete_active_text_prompt(bot, state)
+
     if await _edit_stored_prompt(bot, state, text, reply_markup):
         if prompt_kind is not None:
             await state.update_data(prompt_kind=prompt_kind)
+        data = await state.get_data()
+        chat_id = data.get("prompt_chat_id")
+        msg_id = data.get("prompt_msg_id")
+        if field and chat_id and msg_id:
+            await state.update_data(
+                **active_text_prompt_payload(field, int(chat_id), int(msg_id))
+            )
         return
     await _delete_stored_prompt(bot, state)
     sent = await anchor.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
@@ -247,8 +318,10 @@ async def _finalize_text_step(
     confirm_key: str,
     **fmt: object,
 ) -> None:
-    await _resolve_prompt_to_confirmation(bot, state, message, lang, confirm_key, **fmt)
+    await _delete_active_text_prompt(bot, state)
+    await message.answer(t(confirm_key, lang, **fmt), parse_mode=ParseMode.HTML)
     await _safe_delete_message(bot, message.chat.id, message.message_id)
+    await _clear_stored_prompt(state)
 
 
 async def _handle_stale_callback(cq: CallbackQuery, lang: Lang) -> None:
@@ -276,11 +349,9 @@ async def _resend_current_prompt(
     elif current == CardStates.image_description.state:
         mode = data.get("image_idea_mode", "pick")
         if mode == "custom":
-            kind = data.get("prompt_kind")
-            if kind == "image_voice":
-                await _send_wizard_prompt(anchor, state, t("image_idea_voice_prompt", lang), prompt_kind="image_voice")
-            else:
-                await _send_wizard_prompt(anchor, state, t("image_idea_custom_prompt", lang), prompt_kind="image_custom")
+            await _send_wizard_prompt(
+                anchor, state, t("image_idea_custom_prompt", lang), prompt_kind="image_custom"
+            )
         else:
             await _send_wizard_prompt(
                 anchor,
@@ -318,16 +389,230 @@ def _esc_user_text(text: str) -> str:
     return html.escape(text.strip())
 
 
-def _stt_configured(settings: Settings) -> bool:
-    return bool((settings.PROXI_API_KEY or "").strip() and (settings.PROXI_BASE_URL or "").strip())
-
-
 def _surprise_phrase(lang: Lang) -> str:
     return "surprise me" if lang == "en" else "придумай сам"
 
 
+async def _download_voice_bytes(
+    bot: Bot, message: Message
+) -> tuple[bytes, str, str | None] | None:
+    if not message.voice:
+        return None
+    file = await bot.get_file(message.voice.file_id)
+    bio = await bot.download_file(file.file_path)
+    audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
+    if not audio_bytes:
+        return None
+    path_ext = (file.file_path or "").rsplit(".", 1)[-1].lower() if file.file_path else ""
+    if path_ext in ("oga", "ogg", "opus"):
+        ext = path_ext
+    else:
+        mime = (getattr(message.voice, "mime_type", None) or "").lower()
+        ext = "oga" if "ogg" in mime or "opus" in mime else "oga"
+    mime_type = getattr(message.voice, "mime_type", None)
+    return audio_bytes, f"voice.{ext}", mime_type
+
+
+async def _transcribe_voice_message(
+    bot: Bot,
+    message: Message,
+    settings: Settings,
+    lang: Lang,
+) -> str:
+    downloaded = await _download_voice_bytes(bot, message)
+    if not downloaded:
+        raise SpeechToTextError("voice download empty", reason="technical")
+    audio_bytes, filename, mime_type = downloaded
+    return await transcribe_audio(
+        audio_bytes,
+        settings,
+        filename=filename,
+        timeout=settings.STT_TIMEOUT,
+        language=lang,
+        mime_type=mime_type,
+    )
+
+
+async def _cleanup_pending_voice_confirmation(
+    bot: Bot,
+    state: FSMContext,
+    *,
+    delete_confirm: bool = True,
+    delete_source: bool = True,
+) -> dict[str, object]:
+    """
+    Delete pending voice/confirmation messages (best-effort) and clear FSM keys.
+    Returns a snapshot of pending data read before cleanup.
+    """
+    data = await state.get_data()
+    snapshot = read_pending_voice_snapshot(data)
+    chat_id = snapshot.get(PENDING_VOICE_CHAT_ID_KEY)
+    if chat_id is not None:
+        cid = int(chat_id)
+        if delete_source:
+            source_id = snapshot.get(PENDING_VOICE_SOURCE_MESSAGE_ID_KEY)
+            if source_id is not None:
+                await _safe_delete_message(bot, cid, int(source_id))
+        if delete_confirm:
+            confirm_id = snapshot.get(PENDING_VOICE_CONFIRM_MESSAGE_ID_KEY)
+            if confirm_id is not None:
+                await _safe_delete_message(bot, cid, int(confirm_id))
+    await state.update_data(**clear_pending_voice_payload())
+    return snapshot
+
+
+async def _reprompt_voice_field(
+    bot: Bot,
+    state: FSMContext,
+    lang: Lang,
+    field: str,
+) -> None:
+    """Restore the wizard input prompt after voice confirmation was cancelled."""
+    prompt_pair = field_prompt_for_voice_field(field)
+    if not prompt_pair:
+        return
+    prompt_key, prompt_kind = prompt_pair
+    text = t(prompt_key, lang)
+    field_name = text_field_for_prompt_kind(prompt_kind) or field
+    data = await state.get_data()
+    if data.get(ACTIVE_TEXT_PROMPT_FIELD_KEY) == field_name:
+        await _delete_active_text_prompt(bot, state)
+
+    if await _edit_stored_prompt(bot, state, text):
+        await state.update_data(prompt_kind=prompt_kind)
+        data = await state.get_data()
+        chat_id = data.get("prompt_chat_id")
+        msg_id = data.get("prompt_msg_id")
+        if chat_id and msg_id:
+            await state.update_data(
+                **active_text_prompt_payload(field_name, int(chat_id), int(msg_id))
+            )
+        return
+    data = await state.get_data()
+    chat_id = data.get("prompt_chat_id")
+    if chat_id:
+        sent = await bot.send_message(int(chat_id), text, parse_mode=ParseMode.HTML)
+        await _store_prompt_message(state, sent, prompt_kind=prompt_kind)
+
+
+async def _transcribe_and_offer_voice_confirm(
+    bot: Bot,
+    message: Message,
+    state: FSMContext,
+    lang: Lang,
+    settings: Settings,
+    *,
+    field: str,
+) -> None:
+    """Transcribe voice, delete status message, prompt user to confirm text."""
+    data = await state.get_data()
+    if data.get(PENDING_VOICE_FIELD_KEY):
+        await _cleanup_pending_voice_confirmation(bot, state)
+
+    prompt_pair = field_prompt_for_voice_field(field)
+    prompt_kind = prompt_pair[1] if prompt_pair else "image_custom"
+
+    recognizing = await message.answer(t("voice_recognizing", lang))
+    try:
+        text = await _transcribe_voice_message(bot, message, settings, lang)
+    except SpeechToTextError as exc:
+        await _safe_delete_message(bot, recognizing.chat.id, recognizing.message_id)
+        await message.answer(voice_stt_user_message(lang, exc))
+        return
+
+    await _safe_delete_message(bot, recognizing.chat.id, recognizing.message_id)
+
+    if not text or not text.strip():
+        await _show_validation_retry(
+            bot,
+            state,
+            message,
+            lang,
+            "voice_empty",
+            None,
+            prompt_kind=prompt_kind,
+            delete_user_message=False,
+        )
+        return
+
+    confirm_msg = await message.answer(
+        format_voice_confirm_prompt(lang, text),
+        reply_markup=voice_confirm_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
+    await state.update_data(
+        **pending_voice_payload(
+            field,
+            text.strip(),
+            chat_id=message.chat.id,
+            source_message_id=message.message_id,
+            confirm_message_id=confirm_msg.message_id,
+        )
+    )
+
+
+async def _apply_confirmed_image_voice(
+    bot: Bot,
+    state: FSMContext,
+    anchor: Message,
+    lang: Lang,
+    text: str,
+) -> None:
+    if not validate_image_description(text, lang):
+        await _show_validation_retry(
+            bot,
+            state,
+            anchor,
+            lang,
+            "invalid_image_desc",
+            anchor,
+            prompt_kind="image_custom",
+            delete_user_message=False,
+        )
+        return
+    await state.update_data(image_description=text, image_idea_mode=None)
+    await _finalize_text_step(
+        bot, state, anchor, lang, "confirmed_image_idea", text=_esc_user_text(text)
+    )
+    await _go_to_holiday_prompt(anchor, state, lang)
+
+
+async def _apply_confirmed_holiday_voice(
+    bot: Bot,
+    state: FSMContext,
+    anchor: Message,
+    lang: Lang,
+    text: str,
+) -> None:
+    if not validate_holiday(text, lang):
+        await _show_validation_retry(
+            bot,
+            state,
+            anchor,
+            lang,
+            "invalid_holiday",
+            anchor,
+            prompt_kind="holiday",
+            delete_user_message=False,
+        )
+        return
+    await state.update_data(holiday=text)
+    await state.set_state(CardStates.image_style)
+    await _finalize_text_step(
+        bot, state, anchor, lang, "confirmed_holiday", text=_esc_user_text(text)
+    )
+    await _send_wizard_prompt(
+        anchor,
+        state,
+        t("step3_image_style", lang),
+        image_style_keyboard(lang),
+        prompt_kind="image_style",
+    )
+
+
 def _image_idea_inline_keyboard(lang: Lang, settings: Settings) -> InlineKeyboardMarkup:
-    rows_data = image_idea_keyboard(lang, stt_available=_stt_configured(settings))
+    del settings  # keyboard no longer depends on STT availability
+    rows_data = image_idea_keyboard(lang)
     inline_rows: list[list[InlineKeyboardButton]] = []
     for row in rows_data:
         inline_rows.append(
@@ -679,26 +964,6 @@ async def on_image_idea_custom(cq: CallbackQuery, state: FSMContext, bot: Bot) -
     await cq.answer()
 
 
-@router.callback_query(F.data == IMAGE_IDEA_VOICE, CardStates.image_description)
-async def on_image_idea_voice(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    if not cq.message or not cq.from_user:
-        return
-    lang = await _lang_from_state(state, cq.from_user.id)
-    settings = get_settings()
-    if not _stt_configured(settings):
-        await cq.answer(t("voice_unavailable", lang), show_alert=True)
-        return
-    await state.update_data(image_idea_mode="custom")
-    await _replace_stored_prompt(
-        bot,
-        state,
-        cq.message,
-        t("image_idea_voice_prompt", lang),
-        prompt_kind="image_voice",
-    )
-    await cq.answer()
-
-
 @router.message(CardStates.image_description, F.text)
 async def on_image_description(message: Message, state: FSMContext, bot: Bot) -> None:
     uid = message.from_user.id if message.from_user else 0
@@ -706,6 +971,9 @@ async def on_image_description(message: Message, state: FSMContext, bot: Bot) ->
     data = await state.get_data()
     mode = data.get("image_idea_mode", "pick")
     settings = get_settings()
+
+    if data.get(PENDING_VOICE_FIELD_KEY):
+        await _cleanup_pending_voice_confirmation(bot, state)
 
     if not message.text or not message.text.strip():
         await _show_validation_retry(
@@ -750,53 +1018,19 @@ async def on_image_description_voice(message: Message, state: FSMContext, bot: B
     mode = data.get("image_idea_mode", "pick")
     settings = get_settings()
 
-    if mode == "pick":
-        if not _stt_configured(settings):
-            await message.answer(t("voice_unavailable", lang))
-            return
-        await state.update_data(image_idea_mode="custom")
-
-    if not message.voice:
+    if mode != "custom":
+        await message.answer(
+            t("image_idea_use_buttons", lang),
+            reply_markup=_image_idea_inline_keyboard(lang, settings),
+            parse_mode=ParseMode.HTML,
+        )
         return
-    if not _stt_configured(settings):
+    if not stt_configured(settings):
         await message.answer(t("voice_unavailable", lang))
         return
-    await message.answer(t("voice_recognizing", lang))
-    try:
-        file = await bot.get_file(message.voice.file_id)
-        bio = await bot.download_file(file.file_path)
-        audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
-        if not audio_bytes:
-            await message.answer(t("voice_dl_fail", lang))
-            return
-        ext = (file.file_path or "").split(".")[-1] if file.file_path else "ogg"
-        filename = f"voice.{ext}"
-        text = await transcribe_audio(
-            audio_bytes,
-            api_key=settings.PROXI_API_KEY,
-            base_url=settings.PROXI_BASE_URL,
-            filename=filename,
-            timeout=settings.STT_TIMEOUT,
-        )
-    except SpeechToTextError as e:
-        await message.answer(t("voice_fail", lang, err=e))
-        return
-    if not text or not text.strip():
-        await _show_validation_retry(
-            bot, state, message, lang, "voice_empty", None, prompt_kind="image_custom", delete_user_message=False
-        )
-        return
-    text = text.strip()
-    if not validate_image_description(text, lang):
-        await _show_validation_retry(
-            bot, state, message, lang, "invalid_image_desc", None, prompt_kind="image_custom", delete_user_message=False
-        )
-        return
-    await state.update_data(image_description=text, image_idea_mode=None)
-    await _finalize_text_step(
-        bot, state, message, lang, "confirmed_image_idea", text=_esc_user_text(text)
+    await _transcribe_and_offer_voice_confirm(
+        bot, message, state, lang, settings, field=VOICE_FIELD_IMAGE
     )
-    await _go_to_holiday_prompt(message, state, lang)
 
 
 @router.message(CardStates.image_description)
@@ -818,6 +1052,10 @@ async def on_image_description_other(message: Message, state: FSMContext) -> Non
 async def on_holiday(message: Message, state: FSMContext, bot: Bot) -> None:
     uid = message.from_user.id if message.from_user else 0
     lang = await _lang_from_state(state, uid)
+    data = await state.get_data()
+    if data.get(PENDING_VOICE_FIELD_KEY):
+        await _cleanup_pending_voice_confirmation(bot, state)
+
     if not message.text or not message.text.strip():
         await _show_validation_retry(
             bot, state, message, lang, "empty_holiday", message, prompt_kind="holiday"
@@ -853,53 +1091,50 @@ async def on_holiday_voice(message: Message, state: FSMContext, bot: Bot) -> Non
     lang = await _lang_from_state(state, uid)
     if not message.voice:
         return
-    await message.answer(t("voice_recognizing", lang))
     settings = get_settings()
-    if not settings.PROXI_API_KEY or not settings.PROXI_BASE_URL:
+    if not stt_configured(settings):
         await message.answer(t("voice_unavailable", lang))
         return
-    try:
-        file = await bot.get_file(message.voice.file_id)
-        bio = await bot.download_file(file.file_path)
-        audio_bytes = bio.read() if hasattr(bio, "read") else bytes(bio)
-        if not audio_bytes:
-            await message.answer(t("voice_dl_fail", lang))
+    await _transcribe_and_offer_voice_confirm(
+        bot, message, state, lang, settings, field=VOICE_FIELD_HOLIDAY
+    )
+
+
+@router.callback_query(F.data.in_(VOICE_CONFIRM_CALLBACKS))
+async def on_voice_confirm_action(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    if not cq.data or not cq.message or not cq.from_user:
+        return
+    lang = await _lang_from_state(state, cq.from_user.id)
+    data = await state.get_data()
+    field = data.get(PENDING_VOICE_FIELD_KEY)
+    text = data.get(PENDING_VOICE_TEXT_KEY)
+    current = await state.get_state()
+
+    if cq.data == VOICE_CONFIRM_OK:
+        if not field or not text or not state_matches_pending_field(current, field):
+            await cq.answer(t("stale_callback", lang), show_alert=True)
             return
-        ext = (file.file_path or "").split(".")[-1] if file.file_path else "ogg"
-        filename = f"voice.{ext}"
-        text = await transcribe_audio(
-            audio_bytes,
-            api_key=settings.PROXI_API_KEY,
-            base_url=settings.PROXI_BASE_URL,
-            filename=filename,
-            timeout=settings.STT_TIMEOUT,
+        await _cleanup_pending_voice_confirmation(
+            bot, state, delete_confirm=False, delete_source=True
         )
-    except SpeechToTextError as e:
-        await message.answer(t("voice_fail", lang, err=e))
+        try:
+            await cq.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        if field == VOICE_FIELD_IMAGE:
+            await _apply_confirmed_image_voice(bot, state, cq.message, lang, text)
+        elif field == VOICE_FIELD_HOLIDAY:
+            await _apply_confirmed_holiday_voice(bot, state, cq.message, lang, text)
+        await cq.answer()
         return
-    if not text or not text.strip():
-        await _show_validation_retry(
-            bot, state, message, lang, "voice_empty", None, prompt_kind="holiday", delete_user_message=False
-        )
-        return
-    text = text.strip()
-    if not validate_holiday(text, lang):
-        await _show_validation_retry(
-            bot, state, message, lang, "invalid_holiday", None, prompt_kind="holiday", delete_user_message=False
-        )
-        return
-    await state.update_data(holiday=text)
-    await state.set_state(CardStates.image_style)
-    await _finalize_text_step(
-        bot, state, message, lang, "confirmed_holiday", text=_esc_user_text(text)
-    )
-    await _send_wizard_prompt(
-        message,
-        state,
-        t("step3_image_style", lang),
-        image_style_keyboard(lang),
-        prompt_kind="image_style",
-    )
+
+    if cq.data in (VOICE_CONFIRM_RETRY, VOICE_CONFIRM_TYPE):
+        if not field or not state_matches_pending_field(current, field):
+            await cq.answer(t("stale_callback", lang), show_alert=True)
+            return
+        await _cleanup_pending_voice_confirmation(bot, state)
+        await _reprompt_voice_field(bot, state, lang, field)
+        await cq.answer()
 
 
 @router.message(CardStates.holiday)

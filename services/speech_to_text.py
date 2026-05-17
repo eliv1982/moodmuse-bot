@@ -4,7 +4,6 @@ Speech-to-text via ProxyAPI.ru (OpenAI transcriptions API).
 """
 import json
 import logging
-from typing import Optional
 
 import aiohttp
 
@@ -15,9 +14,11 @@ DEFAULT_MODEL = "whisper-1"
 
 
 class SpeechToTextError(Exception):
-    """Ошибка распознавания речи."""
+    """Speech recognition failed (internal message; map to i18n in handlers)."""
 
-    pass
+    def __init__(self, message: str = "", *, reason: str = "technical") -> None:
+        self.reason = reason
+        super().__init__(message)
 
 
 async def transcribe_audio(
@@ -32,7 +33,6 @@ async def transcribe_audio(
     """
     Транскрибирует аудио в текст через ProxyAPI.ru (OpenAI transcriptions).
     Поддерживаются форматы: mp3, mp4, mpeg, mpga, m4a, wav, webm.
-    Telegram голосовые часто в .ogg — при необходимости конвертируйте в wav/mp3 на клиенте или переименуйте в .webm для пробы.
     """
     url = base_url.rstrip("/") + "/v1/audio/transcriptions"
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -52,22 +52,25 @@ async def transcribe_audio(
                 text = await resp.text()
                 if resp.status != 200:
                     logger.error("STT error status=%s body=%s", resp.status, text[:300])
-                    raise SpeechToTextError(f"Ошибка распознавания речи: {resp.status}")
+                    raise SpeechToTextError(
+                        f"Proxy STT HTTP {resp.status}", reason="technical"
+                    )
 
                 result = text.strip()
                 if not result:
-                    raise SpeechToTextError("Пустой ответ распознавания")
-                # Некоторые API возвращают JSON с полем "text" — извлекаем только его
+                    raise SpeechToTextError("empty proxy STT response", reason="empty")
                 try:
-                    data = json.loads(result)
-                    if isinstance(data, dict) and "text" in data and data["text"]:
-                        result = str(data["text"]).strip()
+                    parsed = json.loads(result)
+                    if isinstance(parsed, dict) and "text" in parsed and parsed["text"]:
+                        result = str(parsed["text"]).strip()
                 except (json.JSONDecodeError, TypeError):
                     pass
                 if not result:
-                    raise SpeechToTextError("Пустой ответ распознавания")
+                    raise SpeechToTextError("empty proxy STT response", reason="empty")
                 logger.info("STT: распознано %d символов", len(result))
                 return result
+    except SpeechToTextError:
+        raise
     except aiohttp.ClientError as e:
         logger.exception("STT request failed: %s", e)
-        raise SpeechToTextError(f"Ошибка запроса: {e}") from e
+        raise SpeechToTextError(f"Proxy STT request failed: {e}", reason="technical") from e
