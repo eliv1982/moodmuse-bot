@@ -65,9 +65,57 @@ def test_fantasy_and_cyberpunk_are_distinct_styles() -> None:
 
     fantasy = IMAGE_STYLES["style_fantasy"].lower()
     cyber = IMAGE_STYLES["style_cyberpunk"].lower()
-    assert "fantasy" in fantasy or "fairy" in fantasy
+    assert "cinematic" in fantasy
     assert "cyberpunk" in cyber
     assert fantasy != cyber
+
+
+def test_fantasy_style_photorealistic_live_action() -> None:
+    from utils.prompts import IMAGE_STYLES
+
+    fantasy = IMAGE_STYLES["style_fantasy"].lower()
+    assert "this must look like a real live-action fantasy film frame" in fantasy
+    assert "photorealistic" in fantasy
+    assert "live-action" in fantasy
+    assert "film" in fantasy
+
+
+def test_fantasy_style_avoids_illustration_and_painting() -> None:
+    from utils.prompts import IMAGE_STYLES
+
+    fantasy = IMAGE_STYLES["style_fantasy"].lower()
+    for phrase in (
+        "not an illustration",
+        "not a digital painting",
+        "not an oil painting",
+        "not watercolor",
+        "not concept art",
+        "not storybook art",
+        "not matte painting",
+        "not painterly fantasy poster",
+        "not cartoon",
+        "not anime",
+        "not over-stylized",
+        "not soft brush-stroke fantasy art",
+    ):
+        assert phrase in fantasy
+
+
+def test_fantasy_style_avoids_default_dragons() -> None:
+    from utils.prompts import IMAGE_STYLES
+
+    fantasy = IMAGE_STYLES["style_fantasy"].lower()
+    assert "no dragons unless" in fantasy
+
+
+def test_fantasy_label_cinematic_fantasy() -> None:
+    ru, en = IMAGE_STYLE_LABELS["style_fantasy"]
+    assert ru.startswith("🎬")
+    assert "Кино-фэнтези" in ru
+    assert en.startswith("🎬")
+    assert "Cinematic fantasy" in en
+    assert "🐉" not in ru
+    assert "🧝" not in ru
 
 
 def test_regen_text_not_in_text_style_callbacks() -> None:
