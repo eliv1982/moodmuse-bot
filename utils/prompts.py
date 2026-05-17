@@ -16,34 +16,52 @@ OCCASION_LABELS = {
     OCCASION_LOVED: ("Для близких ❤️", "Loved ones ❤️"),
 }
 
+# Exactly 8 visible image styles in the wizard keyboard (2 columns × 4 rows).
+IMAGE_STYLE_KEYBOARD_ORDER = (
+    "style_realistic",
+    "style_fantasy",
+    "style_cyberpunk",
+    "style_watercolor",
+    "style_cartoon",
+    "style_cinematic",
+    "style_minimal",
+    "style_botanical",
+)
+
+_FANTASY_PROMPT = "fantasy art, magical, fairy tale, dragons, elves, epic illustration"
+
 IMAGE_STYLES = {
     "style_realistic": "realistic, photorealistic, high detail",
-    "style_cartoon": "cartoon, animated, friendly illustration",
-    "style_humor": "humorous, caricature, funny cartoon style",
-    "style_fantasy": "fantasy, cyberpunk, sci-fi, futuristic",
-    "style_minimal": "minimalist, clean, simple shapes, flat design",
-    "style_vintage": "vintage, retro, nostalgic, classic",
-    "style_watercolor": "watercolor, soft brush, artistic painting",
-    "style_3d": "3D render, modern CGI, smooth lighting",
-    "style_botanical": "botanical illustration, natural history, detailed flora",
-    "style_oil": "oil painting, impasto, rich brushstrokes, classical fine art",
-    "style_fantasy_art": "fantasy art, magical, fairy tale, dragons, elves, epic illustration",
+    "style_fantasy": _FANTASY_PROMPT,
+    "style_cyberpunk": "cyberpunk, neon lights, futuristic sci-fi, glowing accents, night city",
+    "style_watercolor": "watercolor greeting card, soft brush, artistic painting, delicate washes",
+    "style_cartoon": "cozy warm illustration, soft lighting, hygge mood, gentle welcoming details",
     "style_cinematic": "cinematic, movie still, dramatic lighting, film look, widescreen composition",
+    "style_minimal": "minimalist, clean, simple shapes, flat design",
+    "style_botanical": "vintage botanical illustration, antique natural history, detailed flora, aged paper",
+    # Legacy keys (regen / saved cards) — kept off the keyboard
+    "style_humor": "humorous, caricature, funny cartoon style",
+    "style_vintage": "vintage, retro, nostalgic, classic",
+    "style_3d": "3D render, modern CGI, smooth lighting",
+    "style_oil": "oil painting, impasto, rich brushstrokes, classical fine art",
+    "style_fantasy_art": _FANTASY_PROMPT,
 }
 
 IMAGE_STYLE_LABELS = {
-    "style_realistic": ("Реалистичный", "Realistic"),
-    "style_cartoon": ("Мультяшный", "Cartoon"),
+    "style_realistic": ("🖼 Реалистичный", "🖼 Realistic"),
+    "style_fantasy": ("🐉 Фэнтези", "🐉 Fantasy"),
+    "style_cyberpunk": ("🌃 Киберпанк / неоновая фантастика", "🌃 Cyberpunk / neon sci-fi"),
+    "style_watercolor": ("🎨 Акварельная открытка", "🎨 Watercolor card"),
+    "style_cartoon": ("🕯 Уютная иллюстрация", "🕯 Cozy illustration"),
+    "style_cinematic": ("🎬 Кинематографичный", "🎬 Cinematic"),
+    "style_minimal": ("✨ Минималистичный", "✨ Minimalist"),
+    "style_botanical": ("🌿 Винтажная ботаника", "🌿 Vintage botanical"),
+    # Legacy (not shown in keyboard)
     "style_humor": ("С юмором/карикатура", "Humor / caricature"),
-    "style_fantasy": ("Фантастический/киберпанк", "Fantasy / sci-fi"),
-    "style_minimal": ("Минимализм", "Minimal"),
     "style_vintage": ("Винтаж/ретро", "Vintage / retro"),
-    "style_watercolor": ("Акварель", "Watercolor"),
     "style_3d": ("3D-рендер", "3D render"),
-    "style_botanical": ("Ботаническая иллюстрация", "Botanical"),
     "style_oil": ("Масляные краски", "Oil painting"),
     "style_fantasy_art": ("Фэнтези", "Fantasy art"),
-    "style_cinematic": ("Кинематографический", "Cinematic"),
 }
 
 TEXT_STYLES = {
@@ -81,10 +99,27 @@ TEXT_STYLE_LABELS = {
     "text_business": ("Деловой", "Business"),
     "text_warm": ("Душевный/лирический", "Warm / lyrical"),
     "text_poetry": ("Стихи (в рифму)", "Poetry (rhymed)"),
-    "text_humor": ("С юмором", "Humor"),
+    "text_humor": ("С юмором 😂", "Humor 😂"),
     "text_short": ("Кратко", "Short"),
     "text_formal": ("Формальный", "Formal"),
     "text_emotional": ("Эмоциональный", "Emotional"),
+}
+
+TEXT_STYLE_CALLBACKS = frozenset(TEXT_STYLE_LABELS.keys())
+IMAGE_STYLE_CALLBACKS = frozenset(IMAGE_STYLE_LABELS.keys())
+
+_RECIPIENT_IMAGE_HINTS = {
+    OCCASION_CLIENTS: (
+        "professional, respectful, suitable for clients and partners; "
+        "avoid romantic intimacy, avoid heart motifs unless explicitly requested"
+    ),
+    OCCASION_COLLEAGUES: (
+        "friendly workplace-appropriate mood, not overly personal; "
+        "tasteful light humor is fine if the style allows"
+    ),
+    OCCASION_LOVED: (
+        "warm, personal, emotional, affectionate atmosphere is welcome"
+    ),
 }
 
 
@@ -115,7 +150,8 @@ def build_image_prompt(
     else:
         base = f"Beautiful festive greeting card{holiday_part}, warm mood"
 
-    return f"{base}, {style_phrase}, greeting card design, no text on image".strip()
+    audience = _RECIPIENT_IMAGE_HINTS.get(occasion, "appropriate, tasteful greeting card mood")
+    return f"{base}, {style_phrase}, {audience}, greeting card design, no text on image".strip()
 
 
 def build_text_system_prompt(occasion: str, text_style_key: str, lang: Lang) -> str:
@@ -125,9 +161,17 @@ def build_text_system_prompt(occasion: str, text_style_key: str, lang: Lang) -> 
 
     if lang == "en":
         occasion_hint = {
-            OCCASION_CLIENTS: "Audience: clients or partners — professional and respectful.",
-            OCCASION_COLLEAGUES: "Audience: colleagues — friendly and human.",
-            OCCASION_LOVED: "Audience: loved ones — personal and warm.",
+            OCCASION_CLIENTS: (
+                "Audience: clients or partners — neutral, professional, respectful; "
+                "no romantic tone or heart symbols unless the user explicitly asked."
+            ),
+            OCCASION_COLLEAGUES: (
+                "Audience: colleagues — friendly and human, not too personal; "
+                "light humor is fine if the caption style is humorous."
+            ),
+            OCCASION_LOVED: (
+                "Audience: loved ones — warmer, more personal and emotional."
+            ),
         }.get(occasion, "General greeting.")
         base = (
             f"You write short greeting card captions. Avoid clichés. Style: {style_desc}. {occasion_hint} "
@@ -141,9 +185,17 @@ def build_text_system_prompt(occasion: str, text_style_key: str, lang: Lang) -> 
             base += "One short paragraph only."
     else:
         occasion_hint = {
-            OCCASION_CLIENTS: "Обращение к клиентам или партнёрам: уважительно, профессионально.",
-            OCCASION_COLLEAGUES: "Обращение к коллегам: дружелюбно, по-человечески.",
-            OCCASION_LOVED: "Обращение к близким: от души, лично, тёпло.",
+            OCCASION_CLIENTS: (
+                "Обращение к клиентам или партнёрам: нейтрально, уважительно, деловой тон; "
+                "без романтики и без «сердечек», если пользователь сам этого не просил."
+            ),
+            OCCASION_COLLEAGUES: (
+                "Обращение к коллегам: дружелюбно, по-человечески, но не слишком лично; "
+                "лёгкий юмор уместен, если выбран юмористический стиль."
+            ),
+            OCCASION_LOVED: (
+                "Обращение к близким: теплее, личнее, эмоциональнее, от души."
+            ),
         }.get(occasion, "Универсальное поздравление.")
         base = (
             f"Ты — автор коротких поздравлений на русском. "
