@@ -278,7 +278,7 @@ async def test_typed_text_triggers_cleanup() -> None:
         patch.object(main, "get_settings", return_value=MagicMock()),
         patch.object(main, "validate_image_description", return_value=True),
         patch.object(main, "_finalize_text_step", finalize),
-        patch.object(main, "_go_to_holiday_prompt", AsyncMock()),
+        patch.object(main, "_go_to_image_style_prompt", AsyncMock()),
         patch.object(main, "is_small_talk_text", return_value=False),
     ):
         await main.on_image_description(message, state, MagicMock())

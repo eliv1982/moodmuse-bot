@@ -116,8 +116,8 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": (
             "Собрала настройки открытки:\n\n"
             "✅ Для кого: {occasion}\n"
-            "✅ Идея картинки: {image_idea}\n"
             "✅ Повод: {holiday}\n"
+            "✅ Идея картинки: {image_idea}\n"
             "✅ Стиль картинки: {image_style}\n"
             "✅ Стиль текста: {text_style}\n\n"
             "Генерирую открытку… Чуть-чуть терпения ✨"
@@ -125,8 +125,8 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": (
             "Here’s your card setup:\n\n"
             "✅ For: {occasion}\n"
-            "✅ Image idea: {image_idea}\n"
             "✅ Occasion: {holiday}\n"
+            "✅ Image idea: {image_idea}\n"
             "✅ Image style: {image_style}\n"
             "✅ Caption style: {text_style}\n\n"
             "Creating your card… Just a moment ✨"
