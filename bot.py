@@ -1,5 +1,7 @@
 """
 Telegram bot: greeting cards (ProxyAPI images + YandexGPT text). Polling entrypoint.
+
+TODO(observability): ship structured logs to Grafana Loki in a follow-up task (not this branch).
 """
 import asyncio
 import logging
@@ -10,7 +12,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from config import get_settings
+from config import Settings, get_settings
 from handlers import admin_router, main_router
 from handlers.middlewares import MaintenanceMiddleware
 from services.storage import init_storage
@@ -18,6 +20,61 @@ from utils.bot_commands import setup_bot_commands
 from utils.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
+
+
+def _log_startup_provider_warnings(settings: Settings) -> None:
+    """Provider-aware configuration warnings (no secrets in logs)."""
+    text_provider = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    image_provider = (settings.IMAGE_PROVIDER or "proxi").strip().lower()
+    openai_key = (settings.OPENAI_API_KEY or "").strip()
+    yandex_ok = bool((settings.YANDEX_API_KEY or "").strip() and (settings.YANDEX_FOLDER_ID or "").strip())
+    proxi_key = (settings.PROXI_API_KEY or "").strip()
+    proxi_base = (settings.PROXI_BASE_URL or "").strip()
+
+    if text_provider == "yandex":
+        if not yandex_ok:
+            logger.warning(
+                "Yandex text not configured: set YANDEX_API_KEY and YANDEX_FOLDER_ID "
+                "(TEXT_PROVIDER=yandex). Captions and prompt refinement will fail until then.",
+                extra={"event": "startup", "component": "yandex"},
+            )
+    elif text_provider == "openai":
+        if not openai_key:
+            logger.warning(
+                "OpenAI text not configured: set OPENAI_API_KEY (TEXT_PROVIDER=openai).",
+                extra={"event": "startup", "component": "openai_text"},
+            )
+    else:
+        logger.warning(
+            "Unknown TEXT_PROVIDER=%r — text generation may fail.",
+            settings.TEXT_PROVIDER,
+            extra={"event": "startup", "component": "text_provider"},
+        )
+
+    if image_provider == "proxi":
+        if not proxi_key:
+            logger.warning(
+                "ProxyAPI image not configured: set PROXI_API_KEY (IMAGE_PROVIDER=proxi).",
+                extra={"event": "startup", "component": "proxi_image"},
+            )
+    elif image_provider == "openai":
+        if not openai_key:
+            logger.warning(
+                "OpenAI image not configured: set OPENAI_API_KEY (IMAGE_PROVIDER=openai).",
+                extra={"event": "startup", "component": "openai_image"},
+            )
+    else:
+        logger.warning(
+            "Unknown IMAGE_PROVIDER=%r — image generation may fail.",
+            settings.IMAGE_PROVIDER,
+            extra={"event": "startup", "component": "image_provider"},
+        )
+
+    if not proxi_key or not proxi_base:
+        logger.warning(
+            "Voice input unavailable: PROXI_API_KEY and PROXI_BASE_URL required for speech recognition.",
+            extra={"event": "startup", "component": "stt"},
+        )
 
 
 async def main() -> None:
@@ -38,13 +95,7 @@ async def main() -> None:
         logger.error("BOT_TOKEN is not set")
         sys.exit(1)
 
-    if not (settings.YANDEX_API_KEY or "").strip() or not (settings.YANDEX_FOLDER_ID or "").strip():
-        logger.warning(
-            "Yandex Cloud not configured: set YANDEX_API_KEY and YANDEX_FOLDER_ID "
-            "(e.g. in .env next to docker-compose, then recreate container). "
-            "Captions and prompt refinement will fail until then.",
-            extra={"event": "startup", "component": "yandex"},
-        )
+    _log_startup_provider_warnings(settings)
 
     db_path = Path(settings.DATA_DIR) / "bot.db"
     init_storage(db_path)
@@ -62,10 +113,16 @@ async def main() -> None:
     try:
         await setup_bot_commands(bot)
         logger.info("polling_start", extra={"event": "startup"})
-        await dp.start_polling(bot)
+        try:
+            await dp.start_polling(bot)
+        except asyncio.CancelledError:
+            logger.info("Bot stopped by user", extra={"event": "shutdown"})
     finally:
         await bot.session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        logger.info("Bot stopped by user", extra={"event": "shutdown"})

@@ -26,3 +26,5 @@ deploy.log
 .pytest_cache/
 .coverage
 htmlcov/
+
+data/
