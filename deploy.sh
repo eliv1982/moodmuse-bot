@@ -1,6 +1,6 @@
 #!/bin/bash
 # Обновление и перезапуск бота на сервере.
-# Запуск из каталога проекта: cd /home/user/springpost && ./deploy.sh
+# Запуск из каталога проекта: cd /home/user/moodmuse-bot && ./deploy.sh
 # Только перезапуск: ./deploy.sh --restart
 
 set -e
