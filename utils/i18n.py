@@ -8,49 +8,181 @@ from typing import Literal
 Lang = Literal["ru", "en"]
 
 MESSAGES: dict[str, dict[Lang, str]] = {
-    "start_intro": {
+    "home_welcome": {
         "ru": (
-            "🌸 Привет! Я бот хорошего настроения. Создам открытку с картинкой и подписью "
-            "к любому празднику или поводу.\n\nВыберите язык / Choose language:"
+            "✨ <b>Привет! Я MoodMuse</b> — помогу собрать тёплую открытку: "
+            "картинка и подпись под праздник, повод или просто хорошее настроение.\n\n"
+            "Нажмите «Создать открытку», когда будете готовы — проведу вас по шагам."
         ),
         "en": (
-            "🌸 Hi! I’m a feel-good bot. I’ll create a greeting card with art and a caption "
-            "for any occasion.\n\nChoose language / Выберите язык:"
+            "✨ <b>Hi! I’m MoodMuse</b> — I’ll help you make a warm greeting card: "
+            "art plus a caption for a holiday, a milestone, or just because.\n\n"
+            "Tap <b>Create a card</b> when you’re ready — I’ll guide you step by step."
+        ),
+    },
+    "start_intro": {
+        "ru": "🌍 Выберите язык интерфейса и подписей к открыткам:",
+        "en": "🌍 Choose the language for the bot and card captions:",
+    },
+    "btn_create_card": {
+        "ru": "🎨 Создать открытку",
+        "en": "🎨 Create a card",
+    },
+    "btn_help_short": {
+        "ru": "❓ Помощь",
+        "en": "❓ Help",
+    },
+    "btn_change_lang_short": {
+        "ru": "🌍 Язык",
+        "en": "🌍 Language",
+    },
+    "selected_language": {
+        "ru": "✅ Выбрано: {label}",
+        "en": "✅ Selected: {label}",
+    },
+    "selected_occasion": {
+        "ru": "✅ Для кого: {label}",
+        "en": "✅ For: {label}",
+    },
+    "selected_image_style": {
+        "ru": "✅ Стиль картинки: {label}",
+        "en": "✅ Image style: {label}",
+    },
+    "selected_text_style": {
+        "ru": "✅ Стиль текста: {label}",
+        "en": "✅ Caption style: {label}",
+    },
+    "lang_saved_friendly": {
+        "ru": (
+            "Отлично, язык сохранён! 🌷\n"
+            "Теперь выберите, для кого открытка — и пойдём дальше."
+        ),
+        "en": (
+            "Great, language saved! 🌷\n"
+            "Now pick who the card is for — and we’ll continue."
         ),
     },
     "choose_occasion": {
-        "ru": "🌷 <b>Шаг 1 из 5.</b> Для кого открытка? Выберите кнопку ниже — и мы продолжим вместе.",
-        "en": "🌷 <b>Step 1 of 5.</b> Who is the card for? Tap a button below — we’ll go on together.",
+        "ru": "Для кого открытка? Выберите вариант.",
+        "en": "Who is the card for? Pick an option.",
     },
-    "step1_image": {
+    "image_idea_question": {
+        "ru": "Что должно быть на картинке?",
+        "en": "What should appear on the image?",
+    },
+    "btn_image_idea_surprise": {
+        "ru": "✨ Придумай сам",
+        "en": "✨ Surprise me",
+    },
+    "btn_image_idea_custom": {
+        "ru": "✍️ Особые пожелания",
+        "en": "✍️ Custom wishes",
+    },
+    "btn_image_idea_voice": {
+        "ru": "🎙 Голосом",
+        "en": "🎙 Voice",
+    },
+    "image_idea_custom_prompt": {
+        "ru": "Напишите текстом, что обязательно должно быть на картинке.",
+        "en": "Type what must appear on the image.",
+    },
+    "image_idea_voice_prompt": {
+        "ru": "Отправьте голосовое сообщение с описанием картинки.",
+        "en": "Send a voice message describing the image.",
+    },
+    "image_idea_use_buttons": {
+        "ru": "Выберите вариант кнопкой ниже.",
+        "en": "Please pick an option using the buttons below.",
+    },
+    "wizard_small_talk": {
         "ru": (
-            "🌷 <b>Шаг 2 из 5.</b> Опишите, что должно быть на картинке — текстом или голосом. "
-            "Можно написать «придумай сам» — тогда я предложу свою идею."
+            "Я здесь 🙂 Сейчас мы собираем открытку. "
+            "Ответьте на текущий вопрос или нажмите /cancel, если хотите начать заново."
         ),
         "en": (
-            "🌷 <b>Step 2 of 5.</b> Describe what should appear on the image (text or voice). "
-            "Or write “surprise me” and I’ll suggest something nice."
+            "I’m here 🙂 We’re building your card right now. "
+            "Answer the current question or send /cancel to start over."
+        ),
+    },
+    "stale_callback": {
+        "ru": "Этот выбор уже неактуален. Начните заново или продолжите текущий сценарий.",
+        "en": "This choice is outdated. Start over or continue the current flow.",
+    },
+    "confirmed_image_idea_auto": {
+        "ru": "✅ Идея картинки: придумает MoodMuse",
+        "en": "✅ Image idea: MoodMuse will suggest it",
+    },
+    "summary_image_idea_auto": {
+        "ru": "придумает MoodMuse",
+        "en": "MoodMuse will suggest it",
+    },
+    "generation_summary": {
+        "ru": (
+            "Собрала настройки открытки:\n\n"
+            "✅ Для кого: {occasion}\n"
+            "✅ Идея картинки: {image_idea}\n"
+            "✅ Повод: {holiday}\n"
+            "✅ Стиль картинки: {image_style}\n"
+            "✅ Стиль текста: {text_style}\n\n"
+            "Генерирую открытку… Чуть-чуть терпения ✨"
+        ),
+        "en": (
+            "Here’s your card setup:\n\n"
+            "✅ For: {occasion}\n"
+            "✅ Image idea: {image_idea}\n"
+            "✅ Occasion: {holiday}\n"
+            "✅ Image style: {image_style}\n"
+            "✅ Caption style: {text_style}\n\n"
+            "Creating your card… Just a moment ✨"
         ),
     },
     "step2_holiday": {
         "ru": (
-            "🌷 <b>Шаг 3 из 5.</b> Какой праздник или повод? Текстом или голосом.\n\n"
-            "<b>Примеры:</b> Новый год, 8 Марта, 1 Мая, день рождения, юбилей, день компании, "
-            "профессиональный праздник — или просто «просто так», «для хорошего настроения». Как душе угодно ✨"
+            "Какой праздник или повод? Текстом или голосом.\n\n"
+            "<b>Примеры:</b> Новый год, 8 Марта, день рождения, юбилей — "
+            "или «просто так», «для хорошего настроения»."
         ),
         "en": (
-            "🌷 <b>Step 3 of 5.</b> What’s the holiday or occasion? Type or voice.\n\n"
-            "<b>Examples:</b> New Year, March 8, May Day, birthday, company day, "
-            "a work milestone — or “just because”, “for a good mood”. Whatever feels right ✨"
+            "What’s the holiday or occasion? Type or voice.\n\n"
+            "<b>Examples:</b> New Year, March 8, birthday, milestone — "
+            "or “just because”, “for a good mood”."
         ),
     },
     "step3_image_style": {
-        "ru": "🌷 <b>Шаг 4 из 5.</b> Выберите стиль картинки — нажмите кнопку:",
-        "en": "🌷 <b>Step 4 of 5.</b> Pick an image style — tap a button:",
+        "ru": "Выберите стиль картинки:",
+        "en": "Pick an image style:",
     },
     "step4_text_style": {
-        "ru": "🌷 <b>Шаг 5 из 5.</b> И последнее — стиль текста поздравления:",
-        "en": "🌷 <b>Step 5 of 5.</b> Last — the tone of your greeting text:",
+        "ru": "Выберите стиль текста поздравления:",
+        "en": "Pick the tone of your greeting text:",
+    },
+    "confirmed_image_idea": {
+        "ru": "✅ Идея картинки: {text}",
+        "en": "✅ Image idea: {text}",
+    },
+    "confirmed_holiday": {
+        "ru": "✅ Повод: {text}",
+        "en": "✅ Occasion: {text}",
+    },
+    "invalid_image_desc": {
+        "ru": (
+            "Не получилось понять описание. Напишите ещё раз текстом — "
+            "например: «щенок на зимней поляне» — или отправьте голосовое."
+        ),
+        "en": (
+            "I couldn’t understand that description. Please type again — "
+            "e.g. “puppy on a snowy field” — or send a voice message."
+        ),
+    },
+    "invalid_holiday": {
+        "ru": (
+            "Не получилось понять повод. Напишите ещё раз — например: «8 Марта», "
+            "«день рождения» или «просто так»."
+        ),
+        "en": (
+            "I couldn’t understand the occasion. Please try again — "
+            "e.g. “March 8”, “birthday”, or “just because”."
+        ),
     },
     "generating": {
         "ru": "Генерирую открытку… Чуть-чуть терпения ✨",
@@ -110,9 +242,23 @@ MESSAGES: dict[str, dict[Lang, str]] = {
     },
     "reminder_fallback": {
         "ru": (
-            "Я помогаю создавать поздравительные открытки. Отправьте /start, чтобы начать."
+            "Я MoodMuse — делаю открытки с картинкой и подписью. "
+            "Нажмите /start или кнопку «Создать открытку»."
         ),
-        "en": "I help you create greeting cards. Send /start to begin.",
+        "en": (
+            "I’m MoodMuse — I make cards with art and a caption. "
+            "Send /start or tap Create a card."
+        ),
+    },
+    "small_talk_idle": {
+        "ru": (
+            "Я MoodMuse: помогаю собрать открытку с картинкой и подписью. "
+            "Можно начать с кнопки «Создать открытку»."
+        ),
+        "en": (
+            "I’m MoodMuse — I help you make a card with art and a caption. "
+            "Tap Create a card to begin."
+        ),
     },
     "no_saved_card": {
         "ru": "Нет сохранённой открытки. Сначала создайте её через сценарий (/start).",
@@ -123,8 +269,8 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "Describe the image in text or voice (or say “surprise me”).",
     },
     "only_text_voice_step2": {
-        "ru": "Напишите повод текстом или голосом (примеры в шаге 3: праздник, «просто так», «для хорошего настроения»).",
-        "en": "Type or voice the occasion (see step 3 examples: holiday, “just because”, “good mood”).",
+        "ru": "Напишите повод текстом или голосом (праздник, «просто так», «для хорошего настроения»).",
+        "en": "Type or voice the occasion (holiday, “just because”, “for a good mood”).",
     },
     "empty_image_desc": {
         "ru": "Напишите текстом или отправьте голосовое сообщение: что должно быть на картинке (или «придумай сам»).",
@@ -148,12 +294,12 @@ MESSAGES: dict[str, dict[Lang, str]] = {
     },
     "after_voice_holiday": {
         "ru": (
-            "Отлично! 🌷 <b>Шаг 3 из 5.</b> Какой праздник или повод? Текстом или голосом.\n"
-            "Примеры: Новый год, 8 Марта, 1 Мая, день рождения, юбилей, «просто так», «для хорошего настроения»."
+            "Какой праздник или повод? Текстом или голосом.\n"
+            "Примеры: Новый год, 8 Марта, день рождения, «просто так», «для хорошего настроения»."
         ),
         "en": (
-            "Nice! 🌷 <b>Step 3 of 5.</b> What’s the holiday or occasion? Type or voice.\n"
-            "Examples: New Year, March 8, May Day, birthday, “just because”, “for a good mood”."
+            "What’s the holiday or occasion? Type or voice.\n"
+            "Examples: New Year, March 8, birthday, “just because”, “for a good mood”."
         ),
     },
     "use_occasion_buttons": {
@@ -201,8 +347,8 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         ),
     },
     "after_voice_style": {
-        "ru": "Супер! 🌷 <b>Шаг 4 из 5.</b> Выберите стиль картинки — нажмите кнопку:",
-        "en": "Lovely! 🌷 <b>Step 4 of 5.</b> Pick an image style — tap a button:",
+        "ru": "Выберите стиль картинки:",
+        "en": "Pick an image style:",
     },
     "pick_language": {
         "ru": "Выберите язык интерфейса и подписей к открыткам:",
@@ -221,32 +367,46 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "Change language: /lang or the button under your card.",
     },
     "cancel_done": {
-        "ru": "Всё сбросили — можно начать с чистого листа. Сначала выберите, для кого открытка.",
-        "en": "All cleared — you can start fresh. First choose who the card is for.",
+        "ru": "Сценарий отменён. Можно начать заново с главного меню.",
+        "en": "Wizard cancelled. You can start again from the home menu.",
     },
     "cancel_nothing": {
-        "ru": "Сейчас нечего отменять. Отправьте /start, чтобы создать открытку.",
-        "en": "Nothing to cancel right now. Send /start to create a card.",
+        "ru": "Сейчас нечего отменять. Отправьте /start — откроется главное меню.",
+        "en": "Nothing to cancel. Send /start for the home menu.",
     },
     "help_text": {
         "ru": (
+            "<b>MoodMuse</b> — бот для тёплых открыток: картинка и подпись под праздник или повод.\n\n"
+            "<b>Создание открытки</b>\n"
+            "1) для кого (клиенты, коллеги, близкие)\n"
+            "2) идея картинки: «Придумай сам» или особые пожелания\n"
+            "3) праздник или повод (можно «просто так»)\n"
+            "4) стиль картинки\n"
+            "5) стиль текста\n\n"
             "<b>Команды</b>\n"
-            "/start — новая открытка (сброс шагов)\n"
-            "/cancel — отменить сценарий и начать заново\n"
-            "/lang — русский или English\n"
-            "/help — это сообщение\n\n"
-            "<b>5 шагов:</b> для кого → идея картинки → повод (можно «просто так») → стиль картинки → стиль текста.\n"
-            "После открытки можно повторить, сменить текст или картинку, создать ещё одну, сменить язык.\n"
+            "/start — главное меню\n"
+            "/cancel — отменить и вернуться в меню\n"
+            "/lang — язык интерфейса\n"
+            "/help — эта справка\n\n"
+            "После генерации можно повторить открытку, сменить текст или картинку.\n"
+            "Голосовой ввод зависит от настройки распознавания речи (ProxyAPI).\n"
             "Лимит генераций в сутки (кроме админов)."
         ),
         "en": (
+            "<b>MoodMuse</b> makes warm greeting cards: art plus a caption for any occasion.\n\n"
+            "<b>Creating a card</b>\n"
+            "1) who it’s for (clients, colleagues, loved ones)\n"
+            "2) image idea: Surprise me or custom wishes\n"
+            "3) holiday or occasion (“just because” is fine)\n"
+            "4) image style\n"
+            "5) caption style\n\n"
             "<b>Commands</b>\n"
-            "/start — new card (resets the wizard)\n"
-            "/cancel — cancel and start over\n"
-            "/lang — Russian or English\n"
+            "/start — home menu\n"
+            "/cancel — cancel and return to menu\n"
+            "/lang — interface language\n"
             "/help — this message\n\n"
-            "<b>5 steps:</b> who it’s for → image idea → occasion (or “just because”) → image style → text style.\n"
-            "After a card: repeat, new caption, new image, another, change language.\n"
+            "After a card you can repeat it, change the caption or image.\n"
+            "Voice input depends on speech recognition (ProxyAPI).\n"
             "Daily generation limit (except admins)."
         ),
     },
