@@ -73,9 +73,17 @@ class Settings(BaseSettings):
     YANDEX_TIMEOUT: float = 90.0
     YANDEX_PROMPT_REFINE_TIMEOUT: float = 45.0
 
-    # Image generation
+    # Image generation provider: proxi (default) or openai
+    IMAGE_PROVIDER: str = "proxi"
+
+    # Image generation (ProxyAPI / legacy default)
     PROXI_IMAGE_TIMEOUT: float = 120.0
     PROXI_IMAGE_MODEL: str = "gpt-image-1"
+
+    # OpenAI direct images — used when IMAGE_PROVIDER=openai
+    OPENAI_IMAGE_MODEL: str = "gpt-image-1"
+    OPENAI_IMAGE_SIZE: str = "1024x1024"
+    OPENAI_IMAGE_TIMEOUT: float = 120.0
 
     # Speech-to-text
     STT_TIMEOUT: float = 45.0
