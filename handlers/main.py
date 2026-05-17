@@ -346,6 +346,8 @@ async def _resend_current_prompt(
         await _send_wizard_prompt(
             anchor, state, t("choose_occasion", lang), occasion_keyboard(lang), prompt_kind="occasion"
         )
+    elif current == CardStates.holiday.state:
+        await _send_wizard_prompt(anchor, state, t("step2_holiday", lang), prompt_kind="holiday")
     elif current == CardStates.image_description.state:
         mode = data.get("image_idea_mode", "pick")
         if mode == "custom":
@@ -360,8 +362,6 @@ async def _resend_current_prompt(
                 _image_idea_inline_keyboard(lang, settings),
                 prompt_kind="image_idea",
             )
-    elif current == CardStates.holiday.state:
-        await _send_wizard_prompt(anchor, state, t("step2_holiday", lang), prompt_kind="holiday")
     elif current == CardStates.image_style.state:
         await _send_wizard_prompt(
             anchor, state, t("step3_image_style", lang), image_style_keyboard(lang), prompt_kind="image_style"
@@ -574,7 +574,7 @@ async def _apply_confirmed_image_voice(
     await _finalize_text_step(
         bot, state, anchor, lang, "confirmed_image_idea", text=_esc_user_text(text)
     )
-    await _go_to_holiday_prompt(anchor, state, lang)
+    await _go_to_image_style_prompt(anchor, state, lang)
 
 
 async def _apply_confirmed_holiday_voice(
@@ -597,17 +597,10 @@ async def _apply_confirmed_holiday_voice(
         )
         return
     await state.update_data(holiday=text)
-    await state.set_state(CardStates.image_style)
     await _finalize_text_step(
         bot, state, anchor, lang, "confirmed_holiday", text=_esc_user_text(text)
     )
-    await _send_wizard_prompt(
-        anchor,
-        state,
-        t("step3_image_style", lang),
-        image_style_keyboard(lang),
-        prompt_kind="image_style",
-    )
+    await _go_to_image_idea_prompt(anchor, state, lang)
 
 
 def _image_idea_inline_keyboard(lang: Lang, settings: Settings) -> InlineKeyboardMarkup:
@@ -906,26 +899,18 @@ async def on_occasion(cq: CallbackQuery, state: FSMContext) -> None:
         return
     lang = await _lang_from_state(state, cq.from_user.id)
     label = _lbl(OCCASION_LABELS[cq.data], lang)
-    await state.update_data(occasion=cq.data, image_idea_mode="pick")
-    await state.set_state(CardStates.image_description)
+    await state.update_data(occasion=cq.data)
     logger.debug(
         "occasion=%s",
         cq.data,
         extra={"user_id": cq.from_user.id, "event": "fsm"},
     )
     await _collapse_callback_message(cq, lang, "selected_occasion", label=label)
-    settings = get_settings()
-    await _send_wizard_prompt(
-        cq.message,
-        state,
-        t("image_idea_question", lang),
-        _image_idea_inline_keyboard(lang, settings),
-        prompt_kind="image_idea",
-    )
+    await _go_to_holiday_prompt(cq.message, state, lang)
     await cq.answer()
 
 
-# ----- Image idea -----
+# ----- Holiday -----
 
 
 async def _go_to_holiday_prompt(
@@ -937,6 +922,41 @@ async def _go_to_holiday_prompt(
     await _send_wizard_prompt(anchor, state, t("step2_holiday", lang), prompt_kind="holiday")
 
 
+# ----- Image idea -----
+
+
+async def _go_to_image_idea_prompt(
+    anchor: Message,
+    state: FSMContext,
+    lang: Lang,
+) -> None:
+    settings = get_settings()
+    await state.update_data(image_idea_mode="pick")
+    await state.set_state(CardStates.image_description)
+    await _send_wizard_prompt(
+        anchor,
+        state,
+        t("image_idea_question", lang),
+        _image_idea_inline_keyboard(lang, settings),
+        prompt_kind="image_idea",
+    )
+
+
+async def _go_to_image_style_prompt(
+    anchor: Message,
+    state: FSMContext,
+    lang: Lang,
+) -> None:
+    await state.set_state(CardStates.image_style)
+    await _send_wizard_prompt(
+        anchor,
+        state,
+        t("step3_image_style", lang),
+        image_style_keyboard(lang),
+        prompt_kind="image_style",
+    )
+
+
 @router.callback_query(F.data == IMAGE_IDEA_SURPRISE, CardStates.image_description)
 async def on_image_idea_surprise(cq: CallbackQuery, state: FSMContext) -> None:
     if not cq.message or not cq.from_user:
@@ -944,7 +964,7 @@ async def on_image_idea_surprise(cq: CallbackQuery, state: FSMContext) -> None:
     lang = await _lang_from_state(state, cq.from_user.id)
     await state.update_data(image_description=_surprise_phrase(lang), image_idea_mode=None)
     await _collapse_callback_message(cq, lang, "confirmed_image_idea_auto")
-    await _go_to_holiday_prompt(cq.message, state, lang)
+    await _go_to_image_style_prompt(cq.message, state, lang)
     await cq.answer()
 
 
@@ -1007,7 +1027,7 @@ async def on_image_description(message: Message, state: FSMContext, bot: Bot) ->
     await _finalize_text_step(
         bot, state, message, lang, "confirmed_image_idea", text=_esc_user_text(text)
     )
-    await _go_to_holiday_prompt(message, state, lang)
+    await _go_to_image_style_prompt(message, state, lang)
 
 
 @router.message(CardStates.image_description, F.voice)
@@ -1072,17 +1092,10 @@ async def on_holiday(message: Message, state: FSMContext, bot: Bot) -> None:
         )
         return
     await state.update_data(holiday=text)
-    await state.set_state(CardStates.image_style)
     await _finalize_text_step(
         bot, state, message, lang, "confirmed_holiday", text=_esc_user_text(text)
     )
-    await _send_wizard_prompt(
-        message,
-        state,
-        t("step3_image_style", lang),
-        image_style_keyboard(lang),
-        prompt_kind="image_style",
-    )
+    await _go_to_image_idea_prompt(message, state, lang)
 
 
 @router.message(CardStates.holiday, F.voice)

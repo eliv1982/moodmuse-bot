@@ -42,3 +42,7 @@ def test_generation_summary_uses_labels_not_callbacks() -> None:
     assert "придумает MoodMuse" in text or "MoodMuse" in text
     assert "8 Марта" in text
     assert "Генерирую" in text or "Creating" in text
+    occasion_pos = text.index("Для кого") if "Для кого" in text else text.index("For:")
+    holiday_pos = text.index("Повод") if "Повод" in text else text.index("Occasion:")
+    idea_pos = text.index("Идея картинки") if "Идея картинки" in text else text.index("Image idea:")
+    assert occasion_pos < holiday_pos < idea_pos

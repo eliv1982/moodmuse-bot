@@ -97,13 +97,16 @@ VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
 
 Full list: **`.env.example`**.
 
-## User flow (5 steps)
+## User flow
 
-1. **`/start`** — language on first visit, then **who the card is for** (inline buttons).
-2. **Image idea** — text or voice, or “surprise me” / «придумай сам».
-3. **Holiday or occasion** — text or voice (e.g. birthday, “just because”).
+After **`/start`** (language on first visit):
+
+1. **Recipient** — who the card is for (inline buttons).
+2. **Holiday or occasion** — text or voice (e.g. birthday, “just because”).
+3. **Image idea** — «придумай сам» / “surprise me”, or custom wishes (text or voice).
 4. **Image style** — inline buttons.
-5. **Caption style** — inline buttons → generation (prompt refine + image + caption).
+5. **Caption style** — inline buttons.
+6. **Summary → generation** — review your choices, then card creation (prompt refine + image + caption).
 
 ## Project layout
 

@@ -54,7 +54,7 @@ async def test_apply_confirmed_image_voice_deletes_prompt() -> None:
     with (
         patch.object(main, "validate_image_description", return_value=True),
         patch.object(main, "_finalize_text_step", AsyncMock()) as fin,
-        patch.object(main, "_go_to_holiday_prompt", AsyncMock()),
+        patch.object(main, "_go_to_image_style_prompt", AsyncMock()),
     ):
         await main._apply_confirmed_image_voice(MagicMock(), state, anchor, "ru", "щенок")
 
@@ -70,12 +70,13 @@ async def test_apply_confirmed_holiday_voice_deletes_prompt() -> None:
     with (
         patch.object(main, "validate_holiday", return_value=True),
         patch.object(main, "_finalize_text_step", AsyncMock()) as fin,
-        patch.object(main, "_send_wizard_prompt", AsyncMock()),
+        patch.object(main, "_go_to_image_idea_prompt", AsyncMock()) as go_idea,
     ):
         await main._apply_confirmed_holiday_voice(
             MagicMock(), state, MagicMock(), "ru", "8 марта"
         )
     fin.assert_awaited_once()
+    go_idea.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -147,10 +148,12 @@ async def test_typed_holiday_calls_finalize() -> None:
         patch.object(main, "_cleanup_pending_voice_confirmation", AsyncMock()),
         patch.object(main, "validate_holiday", return_value=True),
         patch.object(main, "_finalize_text_step", fin),
-        patch.object(main, "_send_wizard_prompt", AsyncMock()),
+        patch.object(main, "_go_to_image_idea_prompt", AsyncMock()) as go_idea,
         patch.object(main, "is_small_talk_text", return_value=False),
     ):
         await main.on_holiday(message, state, MagicMock())
+
+    go_idea.assert_awaited_once()
 
     fin.assert_awaited_once()
 
