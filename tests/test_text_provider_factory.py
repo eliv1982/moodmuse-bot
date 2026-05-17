@@ -12,14 +12,31 @@ from services.providers.openai_text import OpenAITextProvider
 from services.providers.yandex_text import YandexTextProvider
 
 
-def _settings(**kwargs: object) -> Settings:
-    base: dict[str, object] = {"BOT_TOKEN": "test-token"}
-    base.update(kwargs)
-    return Settings(**base)  # type: ignore[arg-type]
+def _settings(**overrides: object) -> Settings:
+    """Isolated Settings: no .env; explicit fields override external env."""
+    values: dict[str, object] = {
+        "BOT_TOKEN": "test-token",
+        "TEXT_PROVIDER": "yandex",
+        "YANDEX_API_KEY": "",
+        "YANDEX_FOLDER_ID": "",
+        "OPENAI_API_KEY": "",
+        "_env_file": None,
+    }
+    values.update(overrides)
+    return Settings(**values)  # type: ignore[arg-type]
 
 
-def test_settings_default_text_provider_is_yandex() -> None:
-    s = _settings()
+def _clear_yandex_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime merge_yandex_from_os_environ can fill empty keys from os.environ."""
+    monkeypatch.delenv("YANDEX_API_KEY", raising=False)
+    monkeypatch.delenv("YANDEX_FOLDER_ID", raising=False)
+
+
+def test_settings_default_text_provider_is_yandex(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TEXT_PROVIDER", raising=False)
+    s = Settings(BOT_TOKEN="test-token", _env_file=None)  # type: ignore[call-arg]
     assert s.TEXT_PROVIDER == "yandex"
 
 
@@ -34,7 +51,9 @@ def test_get_text_provider_explicit_yandex() -> None:
 
 
 def test_get_text_provider_openai() -> None:
-    provider = get_text_provider(_settings(TEXT_PROVIDER="openai"))
+    provider = get_text_provider(
+        _settings(TEXT_PROVIDER="openai", OPENAI_API_KEY="test-key")
+    )
     assert isinstance(provider, OpenAITextProvider)
 
 
@@ -44,20 +63,26 @@ def test_get_text_provider_unknown_raises() -> None:
 
 
 def test_text_provider_configured_yandex(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("YANDEX_API_KEY", "")
-    monkeypatch.setenv("YANDEX_FOLDER_ID", "")
     assert text_provider_configured(
-        _settings(YANDEX_API_KEY="k", YANDEX_FOLDER_ID="f")
+        _settings(
+            TEXT_PROVIDER="yandex",
+            YANDEX_API_KEY="k",
+            YANDEX_FOLDER_ID="f",
+        )
     )
+    _clear_yandex_env(monkeypatch)
     assert not text_provider_configured(
-        _settings(YANDEX_API_KEY="", YANDEX_FOLDER_ID="")
+        _settings(
+            TEXT_PROVIDER="yandex",
+            YANDEX_API_KEY="",
+            YANDEX_FOLDER_ID="",
+        )
     )
 
 
-def test_text_provider_configured_openai(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "")
+def test_text_provider_configured_openai() -> None:
     assert text_provider_configured(
-        _settings(TEXT_PROVIDER="openai", OPENAI_API_KEY="sk-test")
+        _settings(TEXT_PROVIDER="openai", OPENAI_API_KEY="test-key")
     )
     assert not text_provider_configured(
         _settings(TEXT_PROVIDER="openai", OPENAI_API_KEY="")
@@ -66,7 +91,7 @@ def test_text_provider_configured_openai(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_preflight_message_key_yandex() -> None:
     assert (
-        text_provider_preflight_message_key(_settings())
+        text_provider_preflight_message_key(_settings(TEXT_PROVIDER="yandex"))
         == "yandex_env_missing"
     )
 
@@ -79,11 +104,10 @@ def test_preflight_message_key_openai() -> None:
 
 
 def test_openai_configured_without_yandex(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("YANDEX_API_KEY", "")
-    monkeypatch.setenv("YANDEX_FOLDER_ID", "")
+    _clear_yandex_env(monkeypatch)
     s = _settings(
         TEXT_PROVIDER="openai",
-        OPENAI_API_KEY="sk-test",
+        OPENAI_API_KEY="test-key",
         YANDEX_API_KEY="",
         YANDEX_FOLDER_ID="",
     )
