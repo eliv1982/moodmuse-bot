@@ -28,7 +28,22 @@ IMAGE_STYLE_KEYBOARD_ORDER = (
     "style_botanical",
 )
 
-_FANTASY_PROMPT = "fantasy art, magical, fairy tale, dragons, elves, epic illustration"
+_FANTASY_PROMPT = (
+    "This must look like a real live-action fantasy film frame, not artwork. "
+    "Photorealistic cinematic fantasy, like a frame from a live-action fantasy film. "
+    "The scene should look like it was shot with real actors or highly realistic humanoid characters, "
+    "with natural skin texture, believable facial features, realistic anatomy, realistic hair, hands, "
+    "clothing, leather, fabric, and environmental detail. "
+    "Cinematic composition, realistic camera perspective, depth of field, natural lighting, "
+    "film color grading, immersive but grounded magical atmosphere. "
+    "The fantasy world should feel physically believable and emotionally warm. "
+    "Elven or noble fantasy aesthetics, enchanted coastlines, ancient ruins, misty mountains, "
+    "magical forests, glowing paths, mystical birds, sea spirits, fantasy castles and towers, soft magic. "
+    "Not an illustration, not a digital painting, not an oil painting, not watercolor, "
+    "not concept art, not storybook art, not matte painting, not painterly fantasy poster, "
+    "not cartoon, not anime, not over-stylized, not soft brush-stroke fantasy art. "
+    "No dragons unless the user explicitly requested dragons"
+)
 
 IMAGE_STYLES = {
     "style_realistic": "realistic, photorealistic, high detail",
@@ -49,7 +64,7 @@ IMAGE_STYLES = {
 
 IMAGE_STYLE_LABELS = {
     "style_realistic": ("🖼 Реалистичный", "🖼 Realistic"),
-    "style_fantasy": ("🐉 Фэнтези", "🐉 Fantasy"),
+    "style_fantasy": ("🎬 Кино-фэнтези", "🎬 Cinematic fantasy"),
     "style_cyberpunk": ("🌃 Киберпанк / неоновая фантастика", "🌃 Cyberpunk / neon sci-fi"),
     "style_watercolor": ("🎨 Акварельная открытка", "🎨 Watercolor card"),
     "style_cartoon": ("🕯 Уютная иллюстрация", "🕯 Cozy illustration"),
