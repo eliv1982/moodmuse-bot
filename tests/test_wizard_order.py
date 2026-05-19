@@ -23,35 +23,29 @@ async def test_occasion_advances_to_holiday() -> None:
 
     with (
         patch.object(main, "_lang_from_state", AsyncMock(return_value="ru")),
+        patch.object(main, "_delete_active_wizard_help", AsyncMock()),
         patch.object(main, "_collapse_callback_message", AsyncMock()),
         patch.object(main, "_go_to_holiday_prompt", AsyncMock()) as go_holiday,
     ):
-        await main.on_occasion(cq, state)
+        await main.on_occasion(cq, state, MagicMock())
 
     go_holiday.assert_awaited_once_with(cq.message, state, "ru")
 
 
 @pytest.mark.asyncio
-async def test_holiday_typed_advances_to_image_idea() -> None:
+async def test_holiday_confirmed_advances_to_image_idea() -> None:
     state = AsyncMock()
-    state.get_data = AsyncMock(return_value={})
     state.update_data = AsyncMock()
-
-    message = MagicMock()
-    message.text = "8 Марта"
-    message.from_user.id = 1
+    anchor = MagicMock()
 
     with (
-        patch.object(main, "_lang_from_state", AsyncMock(return_value="ru")),
-        patch.object(main, "_cleanup_pending_voice_confirmation", AsyncMock()),
         patch.object(main, "validate_holiday", return_value=True),
         patch.object(main, "_finalize_text_step", AsyncMock()),
         patch.object(main, "_go_to_image_idea_prompt", AsyncMock()) as go_idea,
-        patch.object(main, "is_small_talk_text", return_value=False),
     ):
-        await main.on_holiday(message, state, MagicMock())
+        await main._apply_confirmed_holiday(MagicMock(), state, anchor, "ru", "8 Марта")
 
-    go_idea.assert_awaited_once_with(message, state, "ru")
+    go_idea.assert_awaited_once_with(anchor, state, "ru")
 
 
 @pytest.mark.asyncio
@@ -116,27 +110,21 @@ async def test_image_idea_custom_opens_custom_prompt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_custom_image_idea_typed_advances_to_image_style() -> None:
+async def test_custom_image_idea_confirmed_advances_to_image_style() -> None:
     state = AsyncMock()
-    state.get_data = AsyncMock(return_value={"image_idea_mode": "custom"})
     state.update_data = AsyncMock()
-
-    message = MagicMock()
-    message.text = "щенок на снегу"
-    message.from_user.id = 1
+    anchor = MagicMock()
 
     with (
-        patch.object(main, "_lang_from_state", AsyncMock(return_value="ru")),
-        patch.object(main, "_cleanup_pending_voice_confirmation", AsyncMock()),
-        patch.object(main, "get_settings", return_value=MagicMock()),
         patch.object(main, "validate_image_description", return_value=True),
         patch.object(main, "_finalize_text_step", AsyncMock()),
         patch.object(main, "_go_to_image_style_prompt", AsyncMock()) as go_style,
-        patch.object(main, "is_small_talk_text", return_value=False),
     ):
-        await main.on_image_description(message, state, MagicMock())
+        await main._apply_confirmed_image(
+            MagicMock(), state, anchor, "ru", "щенок на снегу"
+        )
 
-    go_style.assert_awaited_once_with(message, state, "ru")
+    go_style.assert_awaited_once_with(anchor, state, "ru")
 
 
 @pytest.mark.asyncio

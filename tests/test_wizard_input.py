@@ -38,9 +38,19 @@ def test_small_talk_ru_en() -> None:
     assert is_small_talk_text("привет", "ru")
     assert is_small_talk_text("что ты умеешь", "ru")
     assert is_small_talk_text("помоги", "ru")
+    assert is_small_talk_text("как дела", "ru")
+    assert is_small_talk_text("ghbdtn", "ru")
     assert is_small_talk_text("hello", "en")
     assert is_small_talk_text("what can you do", "en")
+    assert is_small_talk_text("how are you", "en")
     assert is_small_talk_text("help", "en")
+
+
+def test_wizard_meta_holiday_ru() -> None:
+    from utils.wizard_input import FIELD_HOLIDAY, is_wizard_meta_question
+
+    assert is_wizard_meta_question("что предложишь?", FIELD_HOLIDAY, "ru")
+    assert not is_wizard_meta_question("8 Марта", FIELD_HOLIDAY, "ru")
 
 
 def test_gibberish_not_small_talk() -> None:

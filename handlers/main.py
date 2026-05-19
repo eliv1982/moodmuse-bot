@@ -23,6 +23,18 @@ from services.providers.factory import (
     text_provider_configured,
     text_provider_preflight_message_key,
 )
+from services.small_talk import IdleSmallTalkError, generate_idle_small_talk
+from utils.idle_small_talk_session import (
+    IDLE_SMALL_TALK_LAST_FALLBACK_IDX,
+    MAX_IDLE_SMALL_TALK_TURNS,
+    clear_idle_small_talk_session,
+    is_idle_small_talk_session_active,
+    mark_idle_small_talk_turn,
+    next_idle_small_talk_turn,
+    pick_idle_fallback_index,
+    should_use_idle_ai,
+)
+from utils.idle_small_talk_session import IDLE_FALLBACK_MESSAGE_KEYS
 from services.providers.image_factory import (
     image_provider_configured,
     image_provider_preflight_message_key,
@@ -32,8 +44,30 @@ from services.providers.openai_text import OpenAITextError
 from services.providers.stt_factory import SpeechToTextError, stt_configured, transcribe_audio
 from services.storage import LastCardContext, get_storage
 from services.yandex_gpt import YandexGPTError
-from utils.i18n import Lang, t
-from utils.wizard_input import is_small_talk_text, validate_holiday, validate_image_description
+from utils.i18n import Lang, t, wizard_small_talk_key
+from utils.field_confirm import (
+    FIELD_CONFIRM_CALLBACKS,
+    FIELD_HOLIDAY,
+    FIELD_IMAGE,
+    PENDING_TEXT_CHAT_ID_KEY,
+    PENDING_TEXT_CONFIRM_MESSAGE_ID_KEY,
+    PENDING_TEXT_FIELD_KEY,
+    PENDING_TEXT_SOURCE_MESSAGE_ID_KEY,
+    PENDING_TEXT_VALUE_KEY,
+    TEXT_CONFIRM_CHANGE,
+    TEXT_CONFIRM_OK,
+    TEXT_CONFIRM_SUGGEST,
+    TEXT_SOURCE_TYPED,
+    TEXT_SOURCE_VOICE,
+    clear_pending_text_payload,
+    field_confirm_keyboard,
+    field_prompt_for_field,
+    format_field_confirm_prompt,
+    pending_text_payload,
+    read_pending_text_snapshot,
+    state_matches_pending_field,
+)
+from utils.wizard_input import is_small_talk_text, is_wizard_meta_question, validate_holiday, validate_image_description
 from utils.wizard_summary import build_generation_summary
 from utils.active_text_prompt import (
     ACTIVE_TEXT_PROMPT_CHAT_ID_KEY,
@@ -45,25 +79,15 @@ from utils.active_text_prompt import (
     clear_active_text_prompt_payload,
     text_field_for_prompt_kind,
 )
-from utils.voice_confirm import (
-    PENDING_VOICE_CHAT_ID_KEY,
-    PENDING_VOICE_CONFIRM_MESSAGE_ID_KEY,
-    PENDING_VOICE_FIELD_KEY,
-    PENDING_VOICE_SOURCE_MESSAGE_ID_KEY,
-    PENDING_VOICE_TEXT_KEY,
-    VOICE_CONFIRM_CALLBACKS,
-    VOICE_CONFIRM_OK,
-    VOICE_CONFIRM_RETRY,
-    VOICE_CONFIRM_TYPE,
-    VOICE_FIELD_HOLIDAY,
-    VOICE_FIELD_IMAGE,
-    clear_pending_voice_payload,
-    field_prompt_for_voice_field,
-    format_voice_confirm_prompt,
-    pending_voice_payload,
-    read_pending_voice_snapshot,
-    state_matches_pending_field,
-    voice_confirm_keyboard,
+from utils.active_wizard_help import (
+    ACTIVE_HELP_CHAT_ID_KEY,
+    ACTIVE_HELP_FIELD_KEY,
+    ACTIVE_HELP_MESSAGE_ID_KEY,
+    HELP_FIELD_IMAGE_IDEA,
+    HELP_FIELD_OCCASION,
+    active_help_payload,
+    clear_active_help_payload,
+    help_field_for_confirm_key,
 )
 from utils.voice_stt import voice_stt_user_message
 from utils.wizard_ui import (
@@ -139,6 +163,46 @@ async def _delete_active_text_prompt(bot: Bot, state: FSMContext) -> None:
     if chat_id is not None and msg_id is not None:
         await _safe_delete_message(bot, int(chat_id), int(msg_id))
     await state.update_data(**clear_active_text_prompt_payload())
+
+
+async def _delete_active_wizard_help(
+    bot: Bot,
+    state: FSMContext,
+    field: str | None = None,
+) -> None:
+    """Delete tracked helper message for field (or any active help if field is None)."""
+    data = await state.get_data()
+    active_field = data.get(ACTIVE_HELP_FIELD_KEY)
+    if field is not None and active_field != field:
+        return
+    if active_field is None:
+        return
+    chat_id = data.get(ACTIVE_HELP_CHAT_ID_KEY)
+    msg_id = data.get(ACTIVE_HELP_MESSAGE_ID_KEY)
+    if chat_id is not None and msg_id is not None:
+        await _safe_delete_message(bot, int(chat_id), int(msg_id))
+    await state.update_data(**clear_active_help_payload())
+
+
+async def _send_wizard_helper(
+    bot: Bot,
+    state: FSMContext,
+    chat_id: int,
+    lang: Lang,
+    field: str,
+    text: str,
+    **answer_kwargs: object,
+) -> Message:
+    """Send a temporary wizard helper; replace any previous helper for the same field."""
+    await _delete_active_wizard_help(bot, state, field)
+    sent = await bot.send_message(
+        chat_id,
+        text,
+        parse_mode=ParseMode.HTML,
+        **answer_kwargs,  # type: ignore[arg-type]
+    )
+    await state.update_data(**active_help_payload(field, chat_id, sent.message_id))
+    return sent
 
 
 async def _store_prompt_message(
@@ -319,6 +383,9 @@ async def _finalize_text_step(
     **fmt: object,
 ) -> None:
     await _delete_active_text_prompt(bot, state)
+    help_field = help_field_for_confirm_key(confirm_key)
+    if help_field:
+        await _delete_active_wizard_help(bot, state, help_field)
     await message.answer(t(confirm_key, lang, **fmt), parse_mode=ParseMode.HTML)
     await _safe_delete_message(bot, message.chat.id, message.message_id)
     await _clear_stored_prompt(state)
@@ -374,12 +441,55 @@ async def _resend_current_prompt(
         await anchor.answer(t("pick_language", lang), reply_markup=language_keyboard())
 
 
+async def _idle_template_fallback(lang: Lang, state: FSMContext) -> str:
+    data = await state.get_data()
+    last_idx = data.get(IDLE_SMALL_TALK_LAST_FALLBACK_IDX)
+    try:
+        last_i = int(last_idx) if last_idx is not None else None
+    except (TypeError, ValueError):
+        last_i = None
+    idx = pick_idle_fallback_index(last_i)
+    await state.update_data(**{IDLE_SMALL_TALK_LAST_FALLBACK_IDX: idx})
+    return t(IDLE_FALLBACK_MESSAGE_KEYS[idx], lang)
+
+
+async def _idle_small_talk_reply_text(raw: str, lang: Lang, state: FSMContext) -> str:
+    """AI for greetings and active idle session; rotated templates on fallback."""
+    data = await state.get_data()
+    if not get_storage().is_small_talk_enabled():
+        return await _idle_template_fallback(lang, state)
+    if not should_use_idle_ai(raw, lang, data):
+        return await _idle_template_fallback(lang, state)
+
+    settings = get_settings()
+    if not text_provider_configured(settings):
+        return await _idle_template_fallback(lang, state)
+
+    turn = next_idle_small_talk_turn(data)
+    if turn > MAX_IDLE_SMALL_TALK_TURNS:
+        await clear_idle_small_talk_session(state)
+        return await _idle_template_fallback(lang, state)
+
+    try:
+        reply = await generate_idle_small_talk(
+            raw, lang=lang, settings=settings, turn=turn
+        )
+        await mark_idle_small_talk_turn(state, turn)
+        return reply
+    except (IdleSmallTalkError, Exception):
+        logger.exception("idle_small_talk_failed", extra={"event": "idle_small_talk"})
+        if is_small_talk_text(raw, lang) or is_idle_small_talk_session_active(data):
+            await mark_idle_small_talk_turn(state, min(turn, MAX_IDLE_SMALL_TALK_TURNS))
+        return await _idle_template_fallback(lang, state)
+
+
 async def _reply_wizard_small_talk(
     message: Message,
     state: FSMContext,
     lang: Lang,
 ) -> None:
-    await message.answer(t("wizard_small_talk", lang), parse_mode=ParseMode.HTML)
+    current = await state.get_state()
+    await message.answer(t(wizard_small_talk_key(current), lang), parse_mode=ParseMode.HTML)
     data = await state.get_data()
     if not data.get("prompt_msg_id"):
         await _resend_current_prompt(message, state, lang)
@@ -433,7 +543,7 @@ async def _transcribe_voice_message(
     )
 
 
-async def _cleanup_pending_voice_confirmation(
+async def _cleanup_pending_field_confirmation(
     bot: Bot,
     state: FSMContext,
     *,
@@ -441,34 +551,37 @@ async def _cleanup_pending_voice_confirmation(
     delete_source: bool = True,
 ) -> dict[str, object]:
     """
-    Delete pending voice/confirmation messages (best-effort) and clear FSM keys.
+    Delete pending typed/voice confirmation messages (best-effort) and clear FSM keys.
     Returns a snapshot of pending data read before cleanup.
     """
     data = await state.get_data()
-    snapshot = read_pending_voice_snapshot(data)
-    chat_id = snapshot.get(PENDING_VOICE_CHAT_ID_KEY)
+    snapshot = read_pending_text_snapshot(data)
+    chat_id = snapshot.get(PENDING_TEXT_CHAT_ID_KEY)
     if chat_id is not None:
         cid = int(chat_id)
         if delete_source:
-            source_id = snapshot.get(PENDING_VOICE_SOURCE_MESSAGE_ID_KEY)
+            source_id = snapshot.get(PENDING_TEXT_SOURCE_MESSAGE_ID_KEY)
             if source_id is not None:
                 await _safe_delete_message(bot, cid, int(source_id))
         if delete_confirm:
-            confirm_id = snapshot.get(PENDING_VOICE_CONFIRM_MESSAGE_ID_KEY)
+            confirm_id = snapshot.get(PENDING_TEXT_CONFIRM_MESSAGE_ID_KEY)
             if confirm_id is not None:
                 await _safe_delete_message(bot, cid, int(confirm_id))
-    await state.update_data(**clear_pending_voice_payload())
+    await state.update_data(**clear_pending_text_payload())
     return snapshot
 
 
-async def _reprompt_voice_field(
+_cleanup_pending_voice_confirmation = _cleanup_pending_field_confirmation
+
+
+async def _reprompt_field(
     bot: Bot,
     state: FSMContext,
     lang: Lang,
     field: str,
 ) -> None:
-    """Restore the wizard input prompt after voice confirmation was cancelled."""
-    prompt_pair = field_prompt_for_voice_field(field)
+    """Restore the wizard input prompt after confirmation was cancelled."""
+    prompt_pair = field_prompt_for_field(field)
     if not prompt_pair:
         return
     prompt_key, prompt_kind = prompt_pair
@@ -495,6 +608,50 @@ async def _reprompt_voice_field(
         await _store_prompt_message(state, sent, prompt_kind=prompt_kind)
 
 
+async def _offer_field_text_confirm(
+    bot: Bot,
+    message: Message,
+    state: FSMContext,
+    lang: Lang,
+    field: str,
+    text: str,
+    *,
+    source: str,
+) -> None:
+    """Show confirmation UI for typed or transcribed wizard free text."""
+    data = await state.get_data()
+    if data.get(PENDING_TEXT_FIELD_KEY):
+        await _cleanup_pending_field_confirmation(bot, state)
+
+    confirm_msg = await message.answer(
+        format_field_confirm_prompt(lang, text, source=source),  # type: ignore[arg-type]
+        reply_markup=field_confirm_keyboard(lang, field),
+        parse_mode=ParseMode.HTML,
+    )
+    await state.update_data(
+        **pending_text_payload(
+            field,
+            text.strip(),
+            chat_id=message.chat.id,
+            source_message_id=message.message_id,
+            confirm_message_id=confirm_msg.message_id,
+            source=source,  # type: ignore[arg-type]
+        )
+    )
+
+
+async def _reply_wizard_meta_help(
+    bot: Bot,
+    message: Message,
+    state: FSMContext,
+    lang: Lang,
+    field: str,
+) -> None:
+    key = "wizard_meta_holiday_help" if field == FIELD_HOLIDAY else "wizard_meta_image_help"
+    await _safe_delete_message(bot, message.chat.id, message.message_id)
+    await _send_wizard_helper(bot, state, message.chat.id, lang, field, t(key, lang))
+
+
 async def _transcribe_and_offer_voice_confirm(
     bot: Bot,
     message: Message,
@@ -505,11 +662,7 @@ async def _transcribe_and_offer_voice_confirm(
     field: str,
 ) -> None:
     """Transcribe voice, delete status message, prompt user to confirm text."""
-    data = await state.get_data()
-    if data.get(PENDING_VOICE_FIELD_KEY):
-        await _cleanup_pending_voice_confirmation(bot, state)
-
-    prompt_pair = field_prompt_for_voice_field(field)
+    prompt_pair = field_prompt_for_field(field)
     prompt_kind = prompt_pair[1] if prompt_pair else "image_custom"
 
     recognizing = await message.answer(t("voice_recognizing", lang))
@@ -535,23 +688,12 @@ async def _transcribe_and_offer_voice_confirm(
         )
         return
 
-    confirm_msg = await message.answer(
-        format_voice_confirm_prompt(lang, text),
-        reply_markup=voice_confirm_keyboard(lang),
-        parse_mode=ParseMode.HTML,
-    )
-    await state.update_data(
-        **pending_voice_payload(
-            field,
-            text.strip(),
-            chat_id=message.chat.id,
-            source_message_id=message.message_id,
-            confirm_message_id=confirm_msg.message_id,
-        )
+    await _offer_field_text_confirm(
+        bot, message, state, lang, field, text.strip(), source=TEXT_SOURCE_VOICE
     )
 
 
-async def _apply_confirmed_image_voice(
+async def _apply_confirmed_image(
     bot: Bot,
     state: FSMContext,
     anchor: Message,
@@ -577,7 +719,7 @@ async def _apply_confirmed_image_voice(
     await _go_to_image_style_prompt(anchor, state, lang)
 
 
-async def _apply_confirmed_holiday_voice(
+async def _apply_confirmed_holiday(
     bot: Bot,
     state: FSMContext,
     anchor: Message,
@@ -761,11 +903,13 @@ async def on_action_create_card(cq: CallbackQuery, state: FSMContext) -> None:
     storage = get_storage()
     lang_stored = storage.get_user_lang(uid)
     if lang_stored not in ("ru", "en"):
+        await clear_idle_small_talk_session(state)
         await state.set_state(CardStates.choosing_language)
         await _send_wizard_prompt(cq.message, state, t("start_intro", "ru"), language_keyboard())
         await cq.answer()
         return
     lang = coalesce_lang(lang_stored)
+    await clear_idle_small_talk_session(state)
     await state.update_data(lang=lang_stored)
     await state.set_state(CardStates.choosing_occasion)
     await _send_wizard_prompt(
@@ -790,6 +934,7 @@ async def on_action_help(cq: CallbackQuery) -> None:
 async def cmd_lang(message: Message, state: FSMContext) -> None:
     uid = message.from_user.id if message.from_user else 0
     cur = coalesce_lang(get_storage().get_user_lang(uid))
+    await clear_idle_small_talk_session(state)
     await state.set_state(CardStates.choosing_language)
     await message.answer(t("pick_language", cur), reply_markup=language_keyboard())
     logger.info("cmd_lang", extra={"user_id": uid, "event": "cmd_lang"})
@@ -846,6 +991,7 @@ async def on_language_chosen(cq: CallbackQuery, state: FSMContext) -> None:
     )
 
     if current == CardStates.choosing_language.state:
+        await clear_idle_small_talk_session(state)
         await state.set_state(CardStates.choosing_occasion)
         await _send_wizard_prompt(
             cq.message,
@@ -883,20 +1029,37 @@ async def on_occasion_need_buttons(message: Message, state: FSMContext) -> None:
     if is_small_talk_text(txt, lang):
         await _reply_wizard_small_talk(message, state, lang)
         return
-    await message.answer(t("use_occasion_buttons", lang), reply_markup=occasion_keyboard(lang))
+    await _send_wizard_helper(
+        message.bot,
+        state,
+        message.chat.id,
+        lang,
+        HELP_FIELD_OCCASION,
+        t("use_buttons_below", lang),
+        reply_markup=occasion_keyboard(lang),
+    )
 
 
 @router.message(CardStates.choosing_occasion, F.voice)
 async def on_occasion_need_buttons_voice(message: Message, state: FSMContext) -> None:
     uid = message.from_user.id if message.from_user else 0
     lang = await _lang_from_state(state, uid)
-    await message.answer(t("use_occasion_buttons", lang), reply_markup=occasion_keyboard(lang))
+    await _send_wizard_helper(
+        message.bot,
+        state,
+        message.chat.id,
+        lang,
+        HELP_FIELD_OCCASION,
+        t("use_buttons_below", lang),
+        reply_markup=occasion_keyboard(lang),
+    )
 
 
 @router.callback_query(F.data.startswith("occasion_"), CardStates.choosing_occasion)
-async def on_occasion(cq: CallbackQuery, state: FSMContext) -> None:
+async def on_occasion(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     if not cq.data or not cq.message or cq.data not in OCCASION_LABELS:
         return
+    await _delete_active_wizard_help(bot, state, HELP_FIELD_OCCASION)
     lang = await _lang_from_state(state, cq.from_user.id)
     label = _lbl(OCCASION_LABELS[cq.data], lang)
     await state.update_data(occasion=cq.data)
@@ -992,8 +1155,8 @@ async def on_image_description(message: Message, state: FSMContext, bot: Bot) ->
     mode = data.get("image_idea_mode", "pick")
     settings = get_settings()
 
-    if data.get(PENDING_VOICE_FIELD_KEY):
-        await _cleanup_pending_voice_confirmation(bot, state)
+    if data.get(PENDING_TEXT_FIELD_KEY):
+        await _cleanup_pending_field_confirmation(bot, state)
 
     if not message.text or not message.text.strip():
         await _show_validation_retry(
@@ -1008,6 +1171,9 @@ async def on_image_description(message: Message, state: FSMContext, bot: Bot) ->
 
     if mode != "custom":
         await _safe_delete_message(bot, message.chat.id, message.message_id)
+        await _send_wizard_helper(
+            bot, state, message.chat.id, lang, HELP_FIELD_IMAGE_IDEA, t("use_buttons_below", lang)
+        )
         await _replace_stored_prompt(
             bot,
             state,
@@ -1018,16 +1184,13 @@ async def on_image_description(message: Message, state: FSMContext, bot: Bot) ->
         )
         return
 
-    if not validate_image_description(text, lang):
-        await _show_validation_retry(
-            bot, state, message, lang, "invalid_image_desc", message, prompt_kind="image_custom"
-        )
+    if is_wizard_meta_question(text, FIELD_IMAGE, lang):
+        await _reply_wizard_meta_help(bot, message, state, lang, FIELD_IMAGE)
         return
-    await state.update_data(image_description=text, image_idea_mode=None)
-    await _finalize_text_step(
-        bot, state, message, lang, "confirmed_image_idea", text=_esc_user_text(text)
+
+    await _offer_field_text_confirm(
+        bot, message, state, lang, FIELD_IMAGE, text, source=TEXT_SOURCE_TYPED
     )
-    await _go_to_image_style_prompt(message, state, lang)
 
 
 @router.message(CardStates.image_description, F.voice)
@@ -1049,7 +1212,7 @@ async def on_image_description_voice(message: Message, state: FSMContext, bot: B
         await message.answer(t("voice_unavailable", lang))
         return
     await _transcribe_and_offer_voice_confirm(
-        bot, message, state, lang, settings, field=VOICE_FIELD_IMAGE
+        bot, message, state, lang, settings, field=FIELD_IMAGE
     )
 
 
@@ -1073,8 +1236,8 @@ async def on_holiday(message: Message, state: FSMContext, bot: Bot) -> None:
     uid = message.from_user.id if message.from_user else 0
     lang = await _lang_from_state(state, uid)
     data = await state.get_data()
-    if data.get(PENDING_VOICE_FIELD_KEY):
-        await _cleanup_pending_voice_confirmation(bot, state)
+    if data.get(PENDING_TEXT_FIELD_KEY):
+        await _cleanup_pending_field_confirmation(bot, state)
 
     if not message.text or not message.text.strip():
         await _show_validation_retry(
@@ -1086,16 +1249,13 @@ async def on_holiday(message: Message, state: FSMContext, bot: Bot) -> None:
         await _safe_delete_message(bot, message.chat.id, message.message_id)
         await _reply_wizard_small_talk(message, state, lang)
         return
-    if not validate_holiday(text, lang):
-        await _show_validation_retry(
-            bot, state, message, lang, "invalid_holiday", message, prompt_kind="holiday"
-        )
+    if is_wizard_meta_question(text, FIELD_HOLIDAY, lang):
+        await _reply_wizard_meta_help(bot, message, state, lang, FIELD_HOLIDAY)
         return
-    await state.update_data(holiday=text)
-    await _finalize_text_step(
-        bot, state, message, lang, "confirmed_holiday", text=_esc_user_text(text)
+
+    await _offer_field_text_confirm(
+        bot, message, state, lang, FIELD_HOLIDAY, text, source=TEXT_SOURCE_TYPED
     )
-    await _go_to_image_idea_prompt(message, state, lang)
 
 
 @router.message(CardStates.holiday, F.voice)
@@ -1109,45 +1269,62 @@ async def on_holiday_voice(message: Message, state: FSMContext, bot: Bot) -> Non
         await message.answer(t("voice_unavailable", lang))
         return
     await _transcribe_and_offer_voice_confirm(
-        bot, message, state, lang, settings, field=VOICE_FIELD_HOLIDAY
+        bot, message, state, lang, settings, field=FIELD_HOLIDAY
     )
 
 
-@router.callback_query(F.data.in_(VOICE_CONFIRM_CALLBACKS))
-async def on_voice_confirm_action(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+@router.callback_query(F.data.in_(FIELD_CONFIRM_CALLBACKS))
+async def on_field_confirm_action(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     if not cq.data or not cq.message or not cq.from_user:
         return
     lang = await _lang_from_state(state, cq.from_user.id)
     data = await state.get_data()
-    field = data.get(PENDING_VOICE_FIELD_KEY)
-    text = data.get(PENDING_VOICE_TEXT_KEY)
+    field = data.get(PENDING_TEXT_FIELD_KEY)
+    text = data.get(PENDING_TEXT_VALUE_KEY)
     current = await state.get_state()
 
-    if cq.data == VOICE_CONFIRM_OK:
+    if cq.data == TEXT_CONFIRM_OK:
         if not field or not text or not state_matches_pending_field(current, field):
             await cq.answer(t("stale_callback", lang), show_alert=True)
             return
-        await _cleanup_pending_voice_confirmation(
+        await _cleanup_pending_field_confirmation(
             bot, state, delete_confirm=False, delete_source=True
         )
         try:
             await cq.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
-        if field == VOICE_FIELD_IMAGE:
-            await _apply_confirmed_image_voice(bot, state, cq.message, lang, text)
-        elif field == VOICE_FIELD_HOLIDAY:
-            await _apply_confirmed_holiday_voice(bot, state, cq.message, lang, text)
+        if field == FIELD_IMAGE:
+            await _apply_confirmed_image(bot, state, cq.message, lang, text)
+        elif field == FIELD_HOLIDAY:
+            await _apply_confirmed_holiday(bot, state, cq.message, lang, text)
         await cq.answer()
         return
 
-    if cq.data in (VOICE_CONFIRM_RETRY, VOICE_CONFIRM_TYPE):
+    if cq.data == TEXT_CONFIRM_CHANGE:
         if not field or not state_matches_pending_field(current, field):
             await cq.answer(t("stale_callback", lang), show_alert=True)
             return
-        await _cleanup_pending_voice_confirmation(bot, state)
-        await _reprompt_voice_field(bot, state, lang, field)
+        await _cleanup_pending_field_confirmation(bot, state)
+        await _reprompt_field(bot, state, lang, field)
         await cq.answer()
+        return
+
+    if cq.data == TEXT_CONFIRM_SUGGEST:
+        if not field or not state_matches_pending_field(current, field):
+            await cq.answer(t("stale_callback", lang), show_alert=True)
+            return
+        await _cleanup_pending_field_confirmation(bot, state)
+        key = "wizard_meta_holiday_help" if field == FIELD_HOLIDAY else "wizard_meta_image_help"
+        await _send_wizard_helper(bot, state, cq.message.chat.id, lang, field, t(key, lang))
+        await _reprompt_field(bot, state, lang, field)
+        await cq.answer()
+
+
+on_voice_confirm_action = on_field_confirm_action
+_apply_confirmed_image_voice = _apply_confirmed_image
+_apply_confirmed_holiday_voice = _apply_confirmed_holiday
+_reprompt_voice_field = _reprompt_field
 
 
 @router.message(CardStates.holiday)
@@ -1177,6 +1354,20 @@ async def on_image_style(cq: CallbackQuery, state: FSMContext) -> None:
         prompt_kind="text_style",
     )
     await cq.answer()
+
+
+# ----- Generation (small talk while waiting) -----
+
+
+@router.message(CardStates.generating, F.text)
+async def on_generating_small_talk(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw.startswith("/"):
+        return
+    uid = message.from_user.id if message.from_user else 0
+    lang = await _lang_from_state(state, uid)
+    if is_small_talk_text(raw, lang):
+        await _reply_wizard_small_talk(message, state, lang)
 
 
 # ----- Text style -> generation -----
@@ -1494,6 +1685,7 @@ async def on_lang_wait_text(message: Message, state: FSMContext, bot: Bot) -> No
         picked = "ru"
     if picked is not None:
         get_storage().set_user_lang(uid, picked)
+        await clear_idle_small_talk_session(state)
         await state.update_data(lang=picked)
         await state.set_state(CardStates.choosing_occasion)
         await _safe_delete_message(bot, message.chat.id, message.message_id)
@@ -1530,8 +1722,9 @@ async def on_small_talk(message: Message, state: FSMContext) -> None:
         return
     uid = message.from_user.id if message.from_user else 0
     lang = coalesce_lang(get_storage().get_user_lang(uid))
+    reply_text = await _idle_small_talk_reply_text(raw, lang, state)
     await message.answer(
-        t("small_talk_idle", lang),
+        reply_text,
         reply_markup=home_keyboard(lang),
         parse_mode=ParseMode.HTML,
     )
