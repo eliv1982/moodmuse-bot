@@ -81,6 +81,10 @@ _RU_SMALL_TALK_PHRASES = frozenset(
         "кто ты",
         "что дальше",
         "что делать",
+        "как дела",
+        "как жизнь",
+        "как настроение",
+        "как ты",
     }
 )
 _EN_SMALL_TALK_PHRASES = frozenset(
@@ -93,6 +97,9 @@ _EN_SMALL_TALK_PHRASES = frozenset(
         "what do you do",
         "who are you",
         "what next",
+        "how are you",
+        "how are things",
+        "how is it going",
     }
 )
 
@@ -102,15 +109,113 @@ def _normalize_small_talk(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def is_small_talk_text(text: str, lang: Lang) -> bool:
-    """Greetings / help — not valid wizard field input."""
-    normalized = _normalize_small_talk(text)
+def _matches_small_talk_phrase(normalized: str, lang: Lang) -> bool:
     if not normalized:
         return False
     phrases = _EN_SMALL_TALK_PHRASES if lang == "en" else _RU_SMALL_TALK_PHRASES
     if normalized in phrases:
         return True
     return any(normalized.startswith(p + " ") or normalized == p for p in phrases if len(p) >= 4)
+
+
+FIELD_HOLIDAY = "holiday"
+FIELD_IMAGE = "image_description"
+
+_RU_META_HOLIDAY = frozenset(
+    {
+        "что предложишь",
+        "что посоветуешь",
+        "как лучше",
+        "не знаю",
+        "помоги выбрать",
+        "предложи",
+        "придумай",
+        "на твой вкус",
+        "что написать",
+        "помоги",
+    }
+)
+_EN_META_HOLIDAY = frozenset(
+    {
+        "what do you suggest",
+        "what would you suggest",
+        "help me choose",
+        "suggest something",
+        "i don't know",
+        "i dont know",
+        "you choose",
+        "what should i write",
+        "help",
+    }
+)
+_RU_META_IMAGE = frozenset(
+    {
+        "что предложишь",
+        "что посоветуешь",
+        "как лучше",
+        "не знаю",
+        "помоги выбрать",
+        "предложи",
+        "придумай",
+        "придумай сам",
+        "придумай сама",
+        "на твой вкус",
+        "сам",
+        "сама",
+        "помоги",
+    }
+)
+_EN_META_IMAGE = frozenset(
+    {
+        "what do you suggest",
+        "what would you suggest",
+        "help me choose",
+        "suggest something",
+        "i don't know",
+        "i dont know",
+        "you choose",
+        "surprise me",
+        "help",
+    }
+)
+
+
+def _matches_meta_phrase(normalized: str, phrases: frozenset[str]) -> bool:
+    if not normalized:
+        return False
+    if normalized in phrases:
+        return True
+    return any(
+        normalized.startswith(p + " ")
+        or normalized.endswith(" " + p)
+        or normalized == p
+        or (len(p) >= 5 and p in normalized)
+        for p in phrases
+    )
+
+
+def is_wizard_meta_question(text: str, field: str, lang: Lang) -> bool:
+    """User asks for help/suggestions instead of providing a field value."""
+    normalized = _normalize_small_talk(text)
+    if field == FIELD_HOLIDAY:
+        phrases = _EN_META_HOLIDAY if lang == "en" else _RU_META_HOLIDAY
+    elif field == FIELD_IMAGE:
+        phrases = _EN_META_IMAGE if lang == "en" else _RU_META_IMAGE
+    else:
+        return False
+    return _matches_meta_phrase(normalized, phrases)
+
+
+def is_small_talk_text(text: str, lang: Lang) -> bool:
+    """Greetings / help — not valid wizard field input."""
+    normalized = _normalize_small_talk(text)
+    if _matches_small_talk_phrase(normalized, lang):
+        return True
+    if lang == "ru" and _is_latin_keyboard_gibberish(text):
+        converted = _normalize_small_talk(_layout_to_cyrillic(text))
+        if converted != normalized and _matches_small_talk_phrase(converted, lang):
+            return True
+    return False
 
 
 def _letters(text: str) -> list[str]:

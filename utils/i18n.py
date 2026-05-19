@@ -90,15 +90,29 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "Выберите вариант кнопкой ниже.",
         "en": "Please pick an option using the buttons below.",
     },
+    "wizard_small_talk_recipient": {
+        "ru": "Я рядом 🙂 Сначала выберем, для кого открытка.",
+        "en": "I’m right here 🙂 First, let’s pick who the card is for.",
+    },
+    "wizard_small_talk_holiday": {
+        "ru": "Поняла настроение. Теперь нужен повод — можно написать текстом или голосом.",
+        "en": "Got it. Next up is the occasion — type it or send a voice message.",
+    },
+    "wizard_small_talk_image_idea": {
+        "ru": "Можно доверить картинку MoodMuse или описать свои пожелания — как удобнее.",
+        "en": "MoodMuse can handle the image, or wishes can be described — whichever is easier.",
+    },
+    "wizard_small_talk_generating": {
+        "ru": "Уже колдую над открыткой ✨ Осталось немного подождать.",
+        "en": "Already working on the card ✨ Just a little longer to wait.",
+    },
+    "wizard_small_talk_language": {
+        "ru": "Я рядом 🙂 Сначала — язык интерфейса, и продолжим собирать открытку.",
+        "en": "I’m here 🙂 First, the interface language — then we’ll keep building the card.",
+    },
     "wizard_small_talk": {
-        "ru": (
-            "Я здесь 🙂 Сейчас мы собираем открытку. "
-            "Ответьте на текущий вопрос или нажмите /cancel, если хотите начать заново."
-        ),
-        "en": (
-            "I’m here 🙂 We’re building your card right now. "
-            "Answer the current question or send /cancel to start over."
-        ),
+        "ru": "Я рядом 🙂 Продолжим — вариант можно выбрать кнопкой ниже.",
+        "en": "I’m here 🙂 Let’s continue — pick an option with the buttons below.",
     },
     "stale_callback": {
         "ru": "Этот выбор уже неактуален. Начните заново или продолжите текущий сценарий.",
@@ -196,9 +210,25 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "Уже слушаю и распознаю голос...",
         "en": "Listening and transcribing your voice...",
     },
+    "text_confirm_prompt": {
+        "ru": "Я поняла так:\n\n«{text}»\n\nВсё верно?",
+        "en": 'I understood this as:\n\n"{text}"\n\nIs that correct?',
+    },
     "voice_confirm_prompt": {
         "ru": "Я распознала так:\n\n«{text}»\n\nВсё верно?",
         "en": 'I recognized this:\n\n"{text}"\n\nIs that correct?',
+    },
+    "btn_field_confirm_ok": {
+        "ru": "✅ Всё верно",
+        "en": "✅ Looks right",
+    },
+    "btn_field_confirm_change": {
+        "ru": "✏️ Изменить",
+        "en": "✏️ Change",
+    },
+    "btn_field_confirm_suggest": {
+        "ru": "✨ Предложить вариант",
+        "en": "✨ Suggest an option",
     },
     "btn_voice_confirm_ok": {
         "ru": "✅ Всё верно",
@@ -211,6 +241,32 @@ MESSAGES: dict[str, dict[Lang, str]] = {
     "btn_voice_confirm_type": {
         "ru": "✍️ Написать текстом",
         "en": "✍️ Type instead",
+    },
+    "wizard_meta_holiday_help": {
+        "ru": (
+            "Можно выбрать конкретный праздник или настроение. "
+            "Например: Новый год, день рождения, романтический вечер, поддержка, "
+            "«просто так», для хорошего настроения."
+        ),
+        "en": (
+            "You can pick a specific holiday or mood. "
+            "For example: New Year, birthday, romantic evening, support, "
+            "“just because”, for a good mood."
+        ),
+    },
+    "wizard_meta_image_help": {
+        "ru": (
+            "Можно описать детали картинки текстом или голосом. "
+            "Если хочется доверить идею MoodMuse, выбери «✨ Придумай сам»."
+        ),
+        "en": (
+            "Describe the image in text or voice. "
+            "To let MoodMuse handle the idea, tap ✨ Surprise me."
+        ),
+    },
+    "use_buttons_below": {
+        "ru": "Здесь лучше выбрать один из вариантов кнопками ниже.",
+        "en": "Here it’s better to choose one of the buttons below.",
     },
     "voice_unavailable": {
         "ru": "Голосовой ввод недоступен: не настроен API распознавания речи.",
@@ -264,12 +320,32 @@ MESSAGES: dict[str, dict[Lang, str]] = {
     },
     "small_talk_idle": {
         "ru": (
-            "Я MoodMuse: помогаю собрать открытку с картинкой и подписью. "
-            "Можно начать с кнопки «Создать открытку»."
+            "Я на месте ✨ Можем собрать открытку — "
+            "кнопка «Создать открытку» уже ждёт."
         ),
         "en": (
-            "I’m MoodMuse — I help you make a card with art and a caption. "
-            "Tap Create a card to begin."
+            "I’m here ✨ We can make a card together — "
+            "the Create a card button is ready."
+        ),
+    },
+    "small_talk_idle_2": {
+        "ru": (
+            "На связи ✨ Когда захочется открытки — "
+            "«Создать открытку» рядом."
+        ),
+        "en": (
+            "Still here ✨ Whenever a card sounds nice — "
+            "Create a card is right there."
+        ),
+    },
+    "small_talk_idle_3": {
+        "ru": (
+            "Рада помочь с настроением ✨ "
+            "Открытку можно собрать в любой момент — кнопка внизу."
+        ),
+        "en": (
+            "Happy to chat ✨ "
+            "A card is just a tap away whenever it fits the mood."
         ),
     },
     "no_saved_card": {
@@ -423,6 +499,22 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         ),
     },
 }
+
+
+_WIZARD_SMALL_TALK_BY_STATE: dict[str, str] = {
+    "CardStates:choosing_occasion": "wizard_small_talk_recipient",
+    "CardStates:holiday": "wizard_small_talk_holiday",
+    "CardStates:image_description": "wizard_small_talk_image_idea",
+    "CardStates:generating": "wizard_small_talk_generating",
+    "CardStates:choosing_language": "wizard_small_talk_language",
+}
+
+
+def wizard_small_talk_key(state: str | None) -> str:
+    """Map FSM state to a concise small-talk message key."""
+    if not state:
+        return "wizard_small_talk"
+    return _WIZARD_SMALL_TALK_BY_STATE.get(state, "wizard_small_talk")
 
 
 def t(key: str, lang: Lang, **kwargs: object) -> str:

@@ -1,5 +1,5 @@
 """
-Yandex Cloud Foundation Models — chat completion (text, prompt refine, small talk).
+Yandex Cloud Foundation Models — chat completion (greeting text, prompt refine).
 Docs: https://yandex.cloud/en/docs/foundation-models/text-generation/api-ref/
 """
 from __future__ import annotations
@@ -169,38 +169,3 @@ async def enhance_image_prompt(
     if len(line) > 900:
         line = line[:897] + "..."
     return line
-
-
-SMALL_TALK_SYSTEM_RU = (
-    "Ты — бот хорошего настроения. Помогаешь создавать поздравительные открытки. "
-    "Отвечай кратко (1–2 предложения), дружелюбно. В каждом ответе мягко напомни про /start для создания открытки."
-)
-
-SMALL_TALK_SYSTEM_EN = (
-    "You are a feel-good greeting-card bot. Reply in 1–2 short friendly sentences. "
-    "Gently remind the user they can send /start to create a card."
-)
-
-
-async def small_talk_reply(
-    user_message: str,
-    *,
-    lang: Lang,
-    api_key: str,
-    folder_id: str,
-    model_uri: str,
-    url: str,
-    timeout: float = 30.0,
-) -> str:
-    system = SMALL_TALK_SYSTEM_EN if lang == "en" else SMALL_TALK_SYSTEM_RU
-    return await generate_greeting_text(
-        system,
-        user_message or ("Hello" if lang == "en" else "Привет"),
-        api_key=api_key,
-        folder_id=folder_id,
-        model_uri=model_uri,
-        url=url,
-        timeout=timeout,
-        max_tokens=200,
-        temperature=0.5,
-    )

@@ -16,7 +16,7 @@ def test_image_voice_handler_requires_custom_mode() -> None:
     assert "image_idea_use_buttons" in source
 
 
-def test_text_handler_unchanged_for_custom_mode() -> None:
+def test_text_handler_offers_confirmation_in_custom_mode() -> None:
     source = inspect.getsource(main.on_image_description)
-    assert "validate_image_description" in source
+    assert "_offer_field_text_confirm" in source
     assert 'mode != "custom"' in source

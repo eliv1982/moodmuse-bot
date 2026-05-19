@@ -133,29 +133,23 @@ async def test_replace_stored_prompt_clears_previous_same_field() -> None:
 
 
 @pytest.mark.asyncio
-async def test_typed_holiday_calls_finalize() -> None:
+async def test_typed_holiday_offers_confirmation() -> None:
     state = AsyncMock()
-    state.get_data = AsyncMock(return_value={"image_idea_mode": "custom"})
-    state.update_data = AsyncMock()
-
+    state.get_data = AsyncMock(return_value={})
     message = MagicMock()
     message.text = "день рождения"
     message.from_user.id = 1
 
-    fin = AsyncMock()
+    offer = AsyncMock()
     with (
         patch.object(main, "_lang_from_state", AsyncMock(return_value="ru")),
-        patch.object(main, "_cleanup_pending_voice_confirmation", AsyncMock()),
-        patch.object(main, "validate_holiday", return_value=True),
-        patch.object(main, "_finalize_text_step", fin),
-        patch.object(main, "_go_to_image_idea_prompt", AsyncMock()) as go_idea,
+        patch.object(main, "_offer_field_text_confirm", offer),
         patch.object(main, "is_small_talk_text", return_value=False),
+        patch.object(main, "is_wizard_meta_question", return_value=False),
     ):
         await main.on_holiday(message, state, MagicMock())
 
-    go_idea.assert_awaited_once()
-
-    fin.assert_awaited_once()
+    offer.assert_awaited_once()
 
 
 def test_active_text_prompt_payload_keys() -> None:

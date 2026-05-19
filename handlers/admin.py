@@ -30,7 +30,7 @@ async def cmd_stats(message: Message) -> None:
         f"• Unique users today: {unique_today}\n"
         f"• Total generations (log): {total_all}\n"
         f"• Daily user limit: {limit}\n"
-        f"• Small talk LLM: {'on' if st_on else 'off'}\n"
+        f"• AI idle small talk: {'on' if st_on else 'off'}\n"
         f"• Maintenance: {'on' if maint_on else 'off'}"
     )
     uid = message.from_user.id if message.from_user else None
@@ -40,7 +40,7 @@ async def cmd_stats(message: Message) -> None:
 @router.message(Command("smalltalk_on"), AdminFilter())
 async def cmd_smalltalk_on(message: Message) -> None:
     get_storage().set_small_talk_enabled(True)
-    await message.answer("Small talk LLM enabled.")
+    await message.answer("Idle small talk AI enabled (greetings at home menu).")
     uid = message.from_user.id if message.from_user else None
     logger.info("admin_smalltalk_on", extra={"user_id": uid, "event": "admin_config"})
 
@@ -48,7 +48,7 @@ async def cmd_smalltalk_on(message: Message) -> None:
 @router.message(Command("smalltalk_off"), AdminFilter())
 async def cmd_smalltalk_off(message: Message) -> None:
     get_storage().set_small_talk_enabled(False)
-    await message.answer("Small talk LLM disabled (fallback text only).")
+    await message.answer("Idle small talk AI disabled (template fallback only).")
     uid = message.from_user.id if message.from_user else None
     logger.info("admin_smalltalk_off", extra={"user_id": uid, "event": "admin_config"})
 
