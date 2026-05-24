@@ -36,6 +36,218 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "🌍 Язык",
         "en": "🌍 Language",
     },
+    "btn_profile_settings": {
+        "ru": "⚙️ Профиль и настройки",
+        "en": "⚙️ Profile and settings",
+    },
+    "btn_back_home": {
+        "ru": "🏠 Главное меню",
+        "en": "🏠 Home",
+    },
+    "profile_settings_title": {
+        "ru": (
+            "<b>⚙️ Профиль и настройки</b>\n\n"
+            "Здесь можно настроить, как MoodMuse обращается к вам и пишет тексты открыток.\n\n"
+            "👤 Имя: <b>{name}</b>\n"
+            "🌍 Язык: <b>{language}</b>\n"
+            "💬 Обращение: <b>{address}</b>\n"
+            "✍️ Тон текста: <b>{tone}</b>\n"
+            "📏 Длина текста: <b>{length}</b>\n\n"
+            "Выберите, что изменить."
+        ),
+        "en": (
+            "<b>⚙️ Profile and settings</b>\n\n"
+            "Adjust how MoodMuse addresses you and writes card texts.\n\n"
+            "👤 Name: <b>{name}</b>\n"
+            "🌍 Language: <b>{language}</b>\n"
+            "💬 Address style: <b>{address}</b>\n"
+            "✍️ Text tone: <b>{tone}</b>\n"
+            "📏 Text length: <b>{length}</b>\n\n"
+            "Choose what to change."
+        ),
+    },
+    "profile_name_not_set": {
+        "ru": "не указано",
+        "en": "not set",
+    },
+    "profile_btn_name": {
+        "ru": "👤 Имя",
+        "en": "👤 Name",
+    },
+    "profile_btn_lang": {
+        "ru": "🌍 Язык",
+        "en": "🌍 Language",
+    },
+    "profile_btn_address": {
+        "ru": "💬 Обращение",
+        "en": "💬 Address style",
+    },
+    "profile_btn_tone": {
+        "ru": "✍️ Тон текста",
+        "en": "✍️ Text tone",
+    },
+    "profile_btn_length": {
+        "ru": "📏 Длина текста",
+        "en": "📏 Text length",
+    },
+    "profile_btn_dev_reset": {
+        "ru": "🧪 Сбросить мой профиль",
+        "en": "🧪 Reset my profile",
+    },
+    "dev_reset_done": {
+        "ru": "Профиль сброшен. Теперь можно проверить первый запуск заново — отправьте /start.",
+        "en": "Profile reset. You can test first-time onboarding again — send /start.",
+    },
+    "dev_reset_denied": {
+        "ru": "Эта команда доступна только администраторам бота.",
+        "en": "This command is available to bot admins only.",
+    },
+    "profile_btn_back": {
+        "ru": "◀️ Назад в профиль",
+        "en": "◀️ Back to profile",
+    },
+    "profile_screen_lang": {
+        "ru": "🌍 Выберите язык интерфейса и подписей к открыткам:",
+        "en": "🌍 Choose the language for the bot and card captions:",
+    },
+    "profile_screen_address": {
+        "ru": "💬 Как обращаться к вам в подписях?",
+        "en": "💬 How should captions address you?",
+    },
+    "profile_screen_tone": {
+        "ru": "✍️ Выберите тон текста:",
+        "en": "✍️ Choose a text tone:",
+    },
+    "profile_screen_length": {
+        "ru": "📏 Выберите длину текста:",
+        "en": "📏 Choose text length:",
+    },
+    "profile_ask_name": {
+        "ru": "Напишите, пожалуйста, как к вам обращаться.",
+        "en": "Please type what I should call you.",
+    },
+    "profile_name_invalid": {
+        "ru": (
+            "Не получилось распознать имя. Напишите, пожалуйста, коротко — "
+            "как к вам обращаться."
+        ),
+        "en": (
+            "I couldn't recognize that as a name. Please send a short message — "
+            "what should I call you?"
+        ),
+    },
+    "profile_name_confirm": {
+        "ru": "Буду обращаться к вам: <b>{name}</b>\n\nВсё верно?",
+        "en": "I'll call you: <b>{name}</b>\n\nIs that correct?",
+    },
+    "btn_profile_name_ok": {
+        "ru": "✅ Да",
+        "en": "✅ Yes",
+    },
+    "btn_profile_name_change": {
+        "ru": "✏️ Изменить",
+        "en": "✏️ Change",
+    },
+    "profile_name_cancel": {
+        "ru": "Отмена",
+        "en": "Cancel",
+    },
+    "profile_name_cancelled": {
+        "ru": "Изменение имени отменено.",
+        "en": "Name change cancelled.",
+    },
+    "profile_name_text_or_voice": {
+        "ru": "Отправьте имя текстом или голосовым сообщением.",
+        "en": "Send your name as text or a voice message.",
+    },
+    "onboarding_ask_name": {
+        "ru": (
+            "👋 Привет! Я MoodMuse — помогу собрать открытку: картинку и текст под праздник, "
+            "повод или просто настроение.\n\n"
+            "Давайте познакомимся — как мне к вам обращаться?"
+        ),
+        "en": (
+            "👋 Hi! I’m MoodMuse — I can help you create a card: an image and text for a "
+            "holiday, occasion, or just a mood.\n\n"
+            "Let’s get acquainted — what should I call you?"
+        ),
+    },
+    "onboarding_done": {
+        "ru": (
+            "Готово ✨\n\n"
+            "В разделе «Профиль и настройки» можно изменить имя, язык, обращение, "
+            "тон и длину текста.\n\n"
+            "Можно сразу создать открытку — кнопка уже ждёт ниже."
+        ),
+        "en": (
+            "Done ✨\n\n"
+            "In Profile and settings, you can change your name, language, address style, "
+            "tone, and text length.\n\n"
+            "You can create a card right away — the button is below."
+        ),
+    },
+    "start_returning": {
+        "ru": (
+            "👋 {name}, добро пожаловать обратно.\n\n"
+            "Можно создать открытку с нуля или настроить стиль текста в профиле."
+        ),
+        "en": (
+            "👋 {name}, good to see you again.\n\n"
+            "You can create a card from scratch or adjust the writing style in your profile."
+        ),
+    },
+    "pref_address_informal": {
+        "ru": "на ты",
+        "en": "casual",
+    },
+    "pref_address_formal": {
+        "ru": "на вы",
+        "en": "polite",
+    },
+    "pref_tone_warm": {
+        "ru": "тёплый",
+        "en": "warm",
+    },
+    "pref_tone_neutral": {
+        "ru": "нейтральный",
+        "en": "neutral",
+    },
+    "pref_tone_playful": {
+        "ru": "игривый",
+        "en": "playful",
+    },
+    "pref_tone_tender": {
+        "ru": "нежный",
+        "en": "tender",
+    },
+    "pref_tone_elegant": {
+        "ru": "элегантный",
+        "en": "elegant",
+    },
+    "pref_tone_inspiring": {
+        "ru": "вдохновляющий",
+        "en": "inspiring",
+    },
+    "pref_tone_ironic": {
+        "ru": "с лёгкой иронией",
+        "en": "lightly ironic",
+    },
+    "pref_length_short": {
+        "ru": "коротко",
+        "en": "short",
+    },
+    "pref_length_balanced": {
+        "ru": "сбалансированно",
+        "en": "balanced",
+    },
+    "pref_length_detailed": {
+        "ru": "подробнее",
+        "en": "detailed",
+    },
+    "pref_length_expanded": {
+        "ru": "развёрнуто",
+        "en": "expanded",
+    },
     "selected_language": {
         "ru": "✅ Выбрано: {label}",
         "en": "✅ Selected: {label}",
@@ -199,8 +411,14 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "Creating your card… Just a moment ✨",
     },
     "rate_limited": {
-        "ru": "Сегодня лимит генераций исчерпан ({limit} в сутки). Загляните завтра!",
-        "en": "Daily generation limit reached ({limit} per day). Please try again tomorrow!",
+        "ru": (
+            "Сегодня лимит генераций уже исчерпан 🌙\n\n"
+            "Можно вернуться завтра — или пока настроить профиль и стиль текста."
+        ),
+        "en": (
+            "Today's generation limit has been reached 🌙\n\n"
+            "You can come back tomorrow — or adjust your profile and writing style for now."
+        ),
     },
     "maintenance": {
         "ru": "Бот временно недоступен по техническим причинам. Приносим извинения!",
@@ -211,11 +429,11 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "en": "Listening and transcribing your voice...",
     },
     "text_confirm_prompt": {
-        "ru": "Я поняла так:\n\n«{text}»\n\nВсё верно?",
+        "ru": "Я понял так:\n\n«{text}»\n\nВсё верно?",
         "en": 'I understood this as:\n\n"{text}"\n\nIs that correct?',
     },
     "voice_confirm_prompt": {
-        "ru": "Я распознала так:\n\n«{text}»\n\nВсё верно?",
+        "ru": "Я распознал так:\n\n«{text}»\n\nВсё верно?",
         "en": 'I recognized this:\n\n"{text}"\n\nIs that correct?',
     },
     "btn_field_confirm_ok": {

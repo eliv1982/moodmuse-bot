@@ -35,4 +35,11 @@ def test_daily_limit_and_last_card(tmp_path: Path) -> None:
     assert st.is_small_talk_enabled() is True
     st.set_maintenance_message("down")
     assert st.get_maintenance_message() == "down"
+    from utils.profile_preferences import ADDRESS_FORMAL, TONE_PLAYFUL, default_profile_preferences
+
+    assert st.get_profile_preferences(uid) == default_profile_preferences()
+    st.update_profile_preference(uid, address_style=ADDRESS_FORMAL, text_tone=TONE_PLAYFUL)
+    prefs = st.get_profile_preferences(uid)
+    assert prefs.address_style == ADDRESS_FORMAL
+    assert prefs.text_tone == TONE_PLAYFUL
     reset_storage_for_tests()

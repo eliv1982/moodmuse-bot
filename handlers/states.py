@@ -14,3 +14,11 @@ class CardStates(StatesGroup):
     image_style = State()
     text_style = State()
     generating = State()
+
+
+class ProfileStates(StatesGroup):
+    """Profile onboarding and name editing."""
+
+    onboarding_name = State()
+    confirming_name = State()
+    editing_name = State()

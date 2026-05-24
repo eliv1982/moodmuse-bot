@@ -183,7 +183,7 @@ def test_text_confirm_prompt_ru_en() -> None:
 
     ru = format_field_confirm_prompt("ru", "тест", source=TEXT_SOURCE_TYPED)
     en = format_field_confirm_prompt("en", "test", source=TEXT_SOURCE_TYPED)
-    assert "Я поняла так" in ru
+    assert "Я понял так" in ru
     assert "Is that correct" in en
 
 

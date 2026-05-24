@@ -9,7 +9,7 @@ from typing import Any
 from aiogram.fsm.context import FSMContext
 
 from utils.i18n import Lang
-from utils.wizard_input import is_small_talk_text
+from utils.wizard_input import is_idle_chat_intent, is_small_talk_text
 
 IDLE_SMALL_TALK_ACTIVE = "idle_small_talk_active"
 IDLE_SMALL_TALK_TURNS = "idle_small_talk_turns"
@@ -49,10 +49,12 @@ def is_idle_small_talk_session_active(data: dict[str, Any]) -> bool:
 
 
 def should_use_idle_ai(raw: str, lang: Lang, data: dict[str, Any]) -> bool:
-    """Greeting starts a session; follow-ups use AI while the session is active."""
+    """Greeting or chat intent starts a session; follow-ups use AI while the session is active."""
     if is_idle_small_talk_session_active(data):
         return True
-    return is_small_talk_text(raw, lang)
+    if is_small_talk_text(raw, lang):
+        return True
+    return is_idle_chat_intent(raw, lang)
 
 
 def next_idle_small_talk_turn(data: dict[str, Any]) -> int:

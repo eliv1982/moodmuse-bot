@@ -4,6 +4,7 @@ Prompt builders for image (ProxiAPI, English) and text (YandexGPT, RU/EN).
 from typing import Optional
 
 from utils.i18n import Lang
+from utils.profile_preferences import ProfilePreferences, profile_preferences_prompt_suffix
 
 # Occasion types (callback data) and button labels
 OCCASION_CLIENTS = "occasion_clients"
@@ -169,7 +170,12 @@ def build_image_prompt(
     return f"{base}, {style_phrase}, {audience}, greeting card design, no text on image".strip()
 
 
-def build_text_system_prompt(occasion: str, text_style_key: str, lang: Lang) -> str:
+def build_text_system_prompt(
+    occasion: str,
+    text_style_key: str,
+    lang: Lang,
+    profile_prefs: Optional[ProfilePreferences] = None,
+) -> str:
     """System prompt for YandexGPT."""
     style_pair = TEXT_STYLES.get(text_style_key, ("тёплый и уместный", "warm and fitting"))
     style_desc = style_pair[1] if lang == "en" else style_pair[0]
@@ -227,6 +233,9 @@ def build_text_system_prompt(occasion: str, text_style_key: str, lang: Lang) -> 
             )
         else:
             base += " Один короткий абзац, 2–4 предложения."
+
+    if profile_prefs is not None:
+        base += " " + profile_preferences_prompt_suffix(profile_prefs, lang)
 
     return base
 
