@@ -39,6 +39,9 @@ class LastCardContext:
     photo_file_id: str = ""
     """Caption HTML as sent to Telegram (for repeat without API)."""
     caption_html: str = ""
+    recipient_address: str = ""
+    sender_signature: str = ""
+    occasion_details: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +54,9 @@ class LastCardContext:
             "image_prompt_en": self.image_prompt_en,
             "photo_file_id": self.photo_file_id,
             "caption_html": self.caption_html,
+            "recipient_address": self.recipient_address,
+            "sender_signature": self.sender_signature,
+            "occasion_details": self.occasion_details,
         }
 
     @classmethod
@@ -66,6 +72,9 @@ class LastCardContext:
                 image_prompt_en=str(d.get("image_prompt_en", "")),
                 photo_file_id=str(d.get("photo_file_id", "")),
                 caption_html=str(d.get("caption_html", "")),
+                recipient_address=str(d.get("recipient_address", "")),
+                sender_signature=str(d.get("sender_signature", "")),
+                occasion_details=str(d.get("occasion_details", "")),
             )
         except (TypeError, ValueError):
             return None

@@ -174,10 +174,11 @@ def profile_preferences_prompt_suffix(
     prefs: ProfilePreferences,
     lang: Lang,
     *,
+    include_display_name: bool = False,
     telegram_first_name: Optional[str] = None,
 ) -> str:
     """Soft instructions appended to the text system prompt (does not override audience/style rules)."""
-    name = resolve_display_name(prefs, telegram_first_name)
+    name = resolve_display_name(prefs, telegram_first_name) if include_display_name else ""
     if lang == "en":
         parts: list[str] = []
         if name:

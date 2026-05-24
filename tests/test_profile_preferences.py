@@ -8,6 +8,7 @@ import pytest
 
 from handlers import profile as profile_handlers
 from handlers.profile import home_keyboard, start_profile_onboarding
+from utils.main_menu import main_menu_reply_keyboard
 from services.storage import get_storage, init_storage, reset_storage_for_tests
 from utils.i18n import t
 from utils.profile_name_confirm import (
@@ -217,17 +218,39 @@ def test_prompt_includes_profile_preferences_without_gender() -> None:
         text_length=LENGTH_SHORT,
     )
     s_ru = build_text_system_prompt("occasion_loved", "text_warm", "ru", profile_prefs=prefs)
-    assert "Maria" in s_ru
+    assert "Maria" not in s_ru
     assert "на вы" in s_ru or "вы" in s_ru
     assert "нейтраль" in s_ru
     assert "женск" not in s_ru.lower()
     assert "мужск" not in s_ru.lower()
     assert "противоречат" in s_ru
     s_en = build_text_system_prompt("occasion_loved", "text_warm", "en", profile_prefs=prefs)
-    assert "Maria" in s_en
+    assert "Maria" not in s_en
     assert "feminine" not in s_en.lower()
     assert "masculine" not in s_en.lower()
     assert "consistent with audience" in s_en.lower()
+
+
+def test_recipient_address_not_confused_with_profile_name() -> None:
+    prefs = ProfilePreferences(
+        display_name="Лена",
+        gender_or_wording="",
+        address_style=ADDRESS_INFORMAL,
+        text_tone=TONE_WARM,
+        text_length=LENGTH_BALANCED,
+    )
+    prompt = build_text_system_prompt(
+        "occasion_loved",
+        "text_warm",
+        "ru",
+        profile_prefs=prefs,
+        recipient_address="Влад",
+        holiday="день рождения",
+    )
+    assert "Влад" in prompt
+    assert "АДРЕСАТ" in prompt or "адресат" in prompt.lower()
+    assert "Лена" not in prompt
+    assert profile_preferences_prompt_suffix(prefs, "ru", include_display_name=True).count("Лена") >= 1
 
 
 def test_prompt_suffix_new_tones() -> None:
@@ -255,15 +278,24 @@ def test_ironic_tone_valid_and_prompt_is_gentle() -> None:
     assert "mockery" in suffix_en.lower()
 
 
-def test_home_keyboard_layout() -> None:
+def test_main_menu_reply_keyboard_layout() -> None:
+    kb = main_menu_reply_keyboard("ru")
+    assert len(kb.keyboard) == 2
+    row1 = [btn.text for btn in kb.keyboard[0]]
+    row2 = [btn.text for btn in kb.keyboard[1]]
+    assert t("btn_create_card", "ru") in row1
+    assert t("btn_profile_settings", "ru") in row1
+    assert row2 == [t("btn_help_short", "ru")]
+    assert kb.is_persistent is True
+
+
+def test_home_keyboard_legacy_inline_still_exists() -> None:
+    from handlers.profile import home_keyboard
+
     kb = home_keyboard("ru")
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-    labels = [btn.text for row in kb.inline_keyboard for btn in row]
     assert "change_lang" not in callbacks
     assert "profile:main" in callbacks
-    assert "action_create_card" in callbacks
-    assert "action_help" in callbacks
-    assert any("Профиль" in text for text in labels)
 
 
 def test_profile_main_keyboard_no_gender() -> None:
@@ -373,12 +405,18 @@ def test_name_confirm_prompt() -> None:
     assert "correct" in text.lower()
 
 
-def test_finish_onboarding_no_double_greeting() -> None:
+def test_finish_onboarding_uses_reply_main_menu() -> None:
     source = inspect.getsource(profile_handlers._finish_onboarding)
-    assert "home_welcome" not in source
-    assert "onboarding_done" in source
+    assert "main_menu_reply_keyboard" in source
+    assert "home_keyboard" not in source
 
 
-def test_start_returning_message() -> None:
-    assert "{name}" in t("start_returning", "ru")
-    assert "добро пожаловать" in t("start_returning", "ru").lower()
+def test_profile_home_uses_home_return_copy() -> None:
+    source = inspect.getsource(profile_handlers.on_profile_home)
+    assert 't("home_return"' in source
+    assert 't("home_welcome"' not in source
+
+
+def test_start_returning_fallback_message() -> None:
+    assert "{name}" in t("start_returning_fallback", "ru")
+    assert "настроение" in t("start_returning_fallback", "ru").lower()

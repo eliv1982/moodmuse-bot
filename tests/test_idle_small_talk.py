@@ -164,6 +164,7 @@ async def test_on_small_talk_handler_uses_ai_reply() -> None:
     message.from_user = MagicMock(id=42)
     message.answer = AsyncMock()
     state = MagicMock()
+    state.get_state = AsyncMock(return_value=None)
 
     with (
         patch("handlers.main.get_storage") as mock_storage,
@@ -176,7 +177,7 @@ async def test_on_small_talk_handler_uses_ai_reply() -> None:
         mock_storage.return_value.get_user_lang.return_value = "en"
         await on_small_talk(message, state)
 
-    mock_reply.assert_awaited_once_with("hello", "en", state)
+    mock_reply.assert_awaited_once_with("hello", "en", state, user_id=42)
     message.answer.assert_awaited_once()
     assert message.answer.await_args.args[0] == "Dynamic hello"
 

@@ -11,8 +11,14 @@ class CardStates(StatesGroup):
     choosing_occasion = State()
     image_description = State()
     holiday = State()
+    occasion_details_toggle = State()
+    occasion_details = State()
     image_style = State()
     text_style = State()
+    recipient_address_toggle = State()
+    recipient_address = State()
+    signature_toggle = State()
+    sender_signature = State()
     generating = State()
 
 

@@ -24,7 +24,7 @@ from utils.idle_small_talk_session import (
     pick_idle_fallback_index,
     should_use_idle_ai,
 )
-from utils.wizard_input import is_small_talk_text
+from utils.wizard_input import is_idle_casual_text, is_small_talk_text
 
 
 def _settings(**kwargs: object) -> Settings:
@@ -35,6 +35,11 @@ def _settings(**kwargs: object) -> Settings:
     }
     base.update(kwargs)
     return Settings(**base)  # type: ignore[arg-type]
+
+
+def test_should_use_idle_ai_casual_fun_request() -> None:
+    assert should_use_idle_ai("расскажи что-то прикольное", "ru", {})
+    assert is_idle_casual_text("расскажи что-то прикольное", "ru")
 
 
 def test_should_use_idle_ai_follow_up_without_greeting_phrase() -> None:
@@ -193,6 +198,7 @@ async def test_create_card_clears_idle_session() -> None:
     state.get_data = AsyncMock(return_value={})
     state.update_data = AsyncMock()
     state.set_state = AsyncMock()
+    state.clear = AsyncMock()
 
     storage = MagicMock()
     storage.get_user_lang.return_value = "ru"
@@ -242,6 +248,7 @@ async def test_on_small_talk_passes_state() -> None:
     message.from_user = MagicMock(id=1)
     message.answer = AsyncMock()
     state = MagicMock()
+    state.get_state = AsyncMock(return_value=None)
 
     with (
         patch("handlers.main.get_storage") as mock_storage,
@@ -254,4 +261,4 @@ async def test_on_small_talk_passes_state() -> None:
         mock_storage.return_value.get_user_lang.return_value = "en"
         await on_small_talk(message, state)
 
-    mock_reply.assert_awaited_once_with("hello", "en", state)
+    mock_reply.assert_awaited_once_with("hello", "en", state, user_id=1)

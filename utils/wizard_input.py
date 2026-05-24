@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from utils.i18n import Lang, surprise_me_phrases
+from utils.i18n import Lang, surprise_me_phrases, t
 
 # Latin typed while Russian keyboard layout was expected (physical key → Cyrillic).
 _EN_TO_RU_LAYOUT = str.maketrans(
@@ -238,6 +238,92 @@ def is_idle_chat_intent(text: str, lang: Lang) -> bool:
     if len(normalized) < 4:
         return False
     frags = _EN_IDLE_CHAT_FRAGMENTS if lang == "en" else _RU_IDLE_CHAT_FRAGMENTS
+    return any(frag in normalized for frag in frags)
+
+
+_RU_CREATE_CARD_PHRASES = (
+    "создать открытку",
+    "сделать открытку",
+    "давай сделаем открытку",
+    "хочу открытку",
+    "начать открытку",
+    "сделаем открытку",
+    "собрать открытку",
+    "соберем открытку",
+)
+
+_EN_CREATE_CARD_PHRASES = (
+    "create a card",
+    "make a card",
+    "let's make a card",
+    "lets make a card",
+    "start a card",
+    "want a card",
+)
+
+_RU_CREATE_CARD_SOFT_START = "давай сделаем"
+_EN_CREATE_CARD_SOFT_START = "let's make"
+_CARD_NOUN_FRAGMENTS = ("открытк", "карточк", "card")
+
+_RU_IDLE_CASUAL_FRAGMENTS = (
+    "расскаж",
+    "прикольн",
+    "интересн",
+    "смешн",
+    "что нибудь",
+    "что-нибудь",
+    "еще что",
+    "ещё что",
+    "а еще",
+    "а ещё",
+    "поболта",
+    "поговор",
+    "пообщ",
+    "как дела",
+    "как жизнь",
+    "как настроение",
+)
+_EN_IDLE_CASUAL_FRAGMENTS = (
+    "tell me",
+    "something fun",
+    "anything else",
+    "what else",
+    "chat",
+    "talk",
+    "how are you",
+    "how are things",
+)
+
+
+def _mentions_card_noun(normalized: str) -> bool:
+    return any(frag in normalized for frag in _CARD_NOUN_FRAGMENTS)
+
+
+def is_create_card_intent(text: str, lang: Lang) -> bool:
+    """Idle phrases that explicitly mean starting the card wizard (not casual chat)."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    if stripped in (t("btn_create_card", "ru"), t("btn_create_card", "en")):
+        return True
+    normalized = _normalize_small_talk(text)
+    if not normalized:
+        return False
+    phrases = _EN_CREATE_CARD_PHRASES if lang == "en" else _RU_CREATE_CARD_PHRASES
+    if any(phrase in normalized for phrase in phrases):
+        return True
+    soft = _EN_CREATE_CARD_SOFT_START if lang == "en" else _RU_CREATE_CARD_SOFT_START
+    if soft in normalized and _mentions_card_noun(normalized):
+        return True
+    return False
+
+
+def is_idle_casual_text(text: str, lang: Lang) -> bool:
+    """Casual idle chat (fun facts, follow-ups) — not card creation."""
+    normalized = _normalize_small_talk(text)
+    if len(normalized) < 3 or is_create_card_intent(text, lang):
+        return False
+    frags = _EN_IDLE_CASUAL_FRAGMENTS if lang == "en" else _RU_IDLE_CASUAL_FRAGMENTS
     return any(frag in normalized for frag in frags)
 
 
