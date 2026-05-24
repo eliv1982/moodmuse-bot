@@ -145,6 +145,8 @@ def build_image_prompt(
     user_description: Optional[str] = None,
     holiday: Optional[str] = None,
     surprise_phrases: Optional[set[str]] = None,
+    occasion_details: Optional[str] = None,
+    recipient_address: Optional[str] = None,
 ) -> str:
     """
     Build English prompt for ProxiAPI image generation.
@@ -167,7 +169,22 @@ def build_image_prompt(
         base = f"Beautiful festive greeting card{holiday_part}, warm mood"
 
     audience = _RECIPIENT_IMAGE_HINTS.get(occasion, "appropriate, tasteful greeting card mood")
-    return f"{base}, {style_phrase}, {audience}, greeting card design, no text on image".strip()
+    from utils.occasion_details import build_occasion_details_image_suffix
+
+    occasion_extra = build_occasion_details_image_suffix(holiday, occasion_details)
+    recipient_extra = ""
+    if recipient_address and recipient_address.strip():
+        addr = recipient_address.strip()
+        recipient_extra = (
+            f", addressee context for mood only (not necessarily pictured): {addr}; "
+            "do not infer gender of people from this phrase or the card creator's profile name; "
+            "keep depicted people neutral unless the image description explicitly specifies otherwise; "
+            "the person who created the card is not necessarily the person shown in the image"
+        )
+    return (
+        f"{base}, {style_phrase}, {audience}{occasion_extra}{recipient_extra}, "
+        "greeting card design, no text on image"
+    ).strip()
 
 
 def build_text_system_prompt(
@@ -175,6 +192,10 @@ def build_text_system_prompt(
     text_style_key: str,
     lang: Lang,
     profile_prefs: Optional[ProfilePreferences] = None,
+    recipient_address: Optional[str] = None,
+    sender_signature: Optional[str] = None,
+    holiday: Optional[str] = None,
+    occasion_details: Optional[str] = None,
 ) -> str:
     """System prompt for YandexGPT."""
     style_pair = TEXT_STYLES.get(text_style_key, ("тёплый и уместный", "warm and fitting"))
@@ -235,21 +256,51 @@ def build_text_system_prompt(
             base += " Один короткий абзац, 2–4 предложения."
 
     if profile_prefs is not None:
-        base += " " + profile_preferences_prompt_suffix(profile_prefs, lang)
+        base += " " + profile_preferences_prompt_suffix(
+            profile_prefs, lang, include_display_name=False
+        )
 
+    from utils.occasion_details import build_occasion_details_text_suffix
+    from utils.wizard_personalization import build_personalization_prompt_suffix
+
+    occasion_suffix = build_occasion_details_text_suffix(holiday, occasion_details, lang)
+    if occasion_suffix:
+        base += " " + occasion_suffix
+
+    personalization = build_personalization_prompt_suffix(
+        recipient_address, sender_signature, lang
+    )
+    if personalization:
+        base += " " + personalization
+
+    base += _card_output_language_lock(lang)
     return base
+
+
+def _card_output_language_lock(lang: Lang) -> str:
+    if lang == "en":
+        return (
+            " CRITICAL OUTPUT LANGUAGE: Write the entire greeting caption in English only. "
+            "Do not use Russian or mixed language, even if names, signatures, or occasion "
+            "details are in Russian."
+        )
+    return (
+        " КРИТИЧНО — ЯЗЫК ОТВЕТА: весь текст поздравления только на русском. "
+        "Не используй английский или смешение языков, даже если имена или детали "
+        "повода указаны латиницей."
+    )
 
 
 def build_text_user_prompt(holiday: Optional[str], lang: Lang) -> str:
     if lang == "en":
         holiday_part = f"Occasion: {holiday}." if holiday else "Occasion: general greeting."
         return (
-            f"Write the greeting caption only. {holiday_part} "
-            "Output only the greeting text, no title or meta."
+            f"Write the greeting caption only in English. {holiday_part} "
+            "Output only the greeting text in English, no title or meta."
         )
     holiday_part = f"Праздник/повод: {holiday}." if holiday else "Повод: общее поздравление."
     return (
-        f"Напиши только текст поздравления. {holiday_part} "
+        f"Напиши только текст поздравления на русском. {holiday_part} "
         "Без заголовка, без «С уважением», без пояснений и вопросов к адресату."
     )
 

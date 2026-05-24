@@ -115,6 +115,61 @@ def is_idle_ai_reply_too_generic(reply_html: str, lang: Lang) -> bool:
     return False
 
 
+async def generate_returning_start_greeting(
+    name: str,
+    *,
+    lang: Lang,
+    settings: Settings,
+) -> str:
+    """
+    Short warm /start greeting for returning users (HTML-safe).
+    Raises IdleSmallTalkError on failure or generic output.
+    """
+    display_name = (name or "").strip() or ("friend" if lang == "en" else "друг")
+    if lang == "en":
+        system = (
+            "You are MoodMuse, a warm greeting-card assistant. "
+            f"The user {display_name} is returning. "
+            "Write 1–2 short friendly sentences welcoming them back. "
+            "Sound conversational, not like a system menu. "
+            "Naturally mention they can chat or create a card when ready. "
+            f"Start with exactly: 👋 {display_name}, "
+            "No HTML, markdown, or bullet lists. "
+            "Avoid gendered first-person bot forms."
+        )
+    else:
+        system = (
+            "Ты — MoodMuse, тёплый ассистент для открыток. "
+            f"Пользователь {display_name} вернулся. "
+            "Напиши 1–2 коротких дружелюбных предложения — тепло, живо, без канцелярита. "
+            "Естественно напомни, что можно поболтать или собрать открытку, когда захочется. "
+            f"Начни ровно с: 👋 {display_name}, "
+            "Без HTML, markdown и списков. "
+            "Избегай гендерных форм от первого лица («рада/рад»)."
+        )
+    provider = get_text_provider(settings)
+    try:
+        raw = await provider.generate_greeting_text(
+            system,
+            "Returning user sent /start.",
+            timeout=_small_talk_timeout(settings),
+            max_tokens=220,
+            temperature=0.6,
+        )
+    except (YandexGPTError, OpenAITextError) as e:
+        raise IdleSmallTalkError(str(e)) from e
+    except Exception as e:
+        logger.exception("returning_greeting_error", extra={"event": "returning_greeting"})
+        raise IdleSmallTalkError(str(e)) from e
+    formatted = format_small_talk_for_telegram(raw)
+    plain = html.unescape(formatted).strip()
+    if display_name.lower() not in plain.lower():
+        formatted = f"👋 {html.escape(display_name)}, {formatted}"
+    if is_idle_ai_reply_too_generic(formatted, lang):
+        raise IdleSmallTalkError("generic returning greeting")
+    return formatted
+
+
 async def generate_idle_small_talk(
     user_message: str,
     *,

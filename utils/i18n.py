@@ -196,6 +196,26 @@ MESSAGES: dict[str, dict[Lang, str]] = {
             "You can create a card from scratch or adjust the writing style in your profile."
         ),
     },
+    "start_returning_fallback": {
+        "ru": (
+            "👋 {name}, добро пожаловать обратно.\n\n"
+            "Как настроение? Можно немного поболтать или сразу собрать открытку — кнопка ниже."
+        ),
+        "en": (
+            "👋 {name}, welcome back.\n\n"
+            "How are you feeling? We can chat a little or jump straight into a card — the button is below."
+        ),
+    },
+    "home_return": {
+        "ru": (
+            "Что создадим дальше? Можно начать новую открытку "
+            "или поправить настройки профиля."
+        ),
+        "en": (
+            "What shall we create next? You can start a new card "
+            "or adjust your profile settings."
+        ),
+    },
     "pref_address_informal": {
         "ru": "на ты",
         "en": "casual",
@@ -343,20 +363,193 @@ MESSAGES: dict[str, dict[Lang, str]] = {
             "Собрала настройки открытки:\n\n"
             "✅ Для кого: {occasion}\n"
             "✅ Повод: {holiday}\n"
+            "{occasion_details_line}"
             "✅ Идея картинки: {image_idea}\n"
             "✅ Стиль картинки: {image_style}\n"
-            "✅ Стиль текста: {text_style}\n\n"
+            "✅ Стиль текста: {text_style}\n"
+            "{personalization}\n"
             "Генерирую открытку… Чуть-чуть терпения ✨"
         ),
         "en": (
             "Here’s your card setup:\n\n"
             "✅ For: {occasion}\n"
             "✅ Occasion: {holiday}\n"
+            "{occasion_details_line}"
             "✅ Image idea: {image_idea}\n"
             "✅ Image style: {image_style}\n"
-            "✅ Caption style: {text_style}\n\n"
+            "✅ Caption style: {text_style}\n"
+            "{personalization}\n"
             "Creating your card… Just a moment ✨"
         ),
+    },
+    "summary_occasion_details": {
+        "ru": "✅ Уточнение: {value}",
+        "en": "✅ Detail: {value}",
+    },
+    "summary_recipient_address": {
+        "ru": "✅ Обращение: {value}",
+        "en": "✅ Greeting/address: {value}",
+    },
+    "summary_signature": {
+        "ru": "✅ Подпись: {signature}",
+        "en": "✅ Signature: {signature}",
+    },
+    "step_occasion_details_toggle": {
+        "ru": "Указать возраст, дату или период?",
+        "en": "Add an age, date, or period?",
+    },
+    "wizard_occasion_details_ask": {
+        "ru": (
+            "Что именно указать? Например: 19 лет, 50 лет, 15 лет брака, месяц знакомства."
+        ),
+        "en": (
+            "What should be specified? For example: 19 years old, 50th birthday, "
+            "15 years married, one month together."
+        ),
+    },
+    "wizard_occasion_details_retry": {
+        "ru": "Напишите, пожалуйста, уточнение заново.",
+        "en": "Please enter the detail again.",
+    },
+    "occasion_details_confirm": {
+        "ru": "Добавить это уточнение: <b>{value}</b>?\n\nВсё верно?",
+        "en": "Add this detail: <b>{value}</b>?\n\nIs that correct?",
+    },
+    "confirmed_occasion_details": {
+        "ru": "✅ Уточнение: {value}",
+        "en": "✅ Detail: {value}",
+    },
+    "invalid_occasion_details": {
+        "ru": (
+            "Не получилось понять уточнение. Напишите коротко — "
+            "например: «19 лет» или «15 лет брака» — или отправьте голосовое."
+        ),
+        "en": (
+            "I couldn’t understand that detail. Please type briefly — "
+            "e.g. “19 years old” or “15 years married” — or send a voice message."
+        ),
+    },
+    "only_text_voice_occasion_details": {
+        "ru": "На этом шаге отправьте уточнение текстом или голосовым сообщением.",
+        "en": "On this step, send the detail as text or a voice message.",
+    },
+    "empty_occasion_details": {
+        "ru": "Уточнение не может быть пустым. Напишите текстом или отправьте голосовое.",
+        "en": "The detail can’t be empty. Type it or send a voice message.",
+    },
+    "toggle_occasion_details_no": {
+        "ru": "➖ Без уточнения",
+        "en": "➖ No detail",
+    },
+    "toggle_occasion_details_yes": {
+        "ru": "✅ Добавим уточнение",
+        "en": "✅ Detail added",
+    },
+    "step5_recipient_toggle": {
+        "ru": "Добавить обращение?",
+        "en": "Add a greeting/address?",
+    },
+    "wizard_recipient_address_ask": {
+        "ru": "Какое обращение добавить в открытку?",
+        "en": "What greeting or address should be added to the card?",
+    },
+    "wizard_recipient_address_retry": {
+        "ru": "Напишите, пожалуйста, обращение заново.",
+        "en": "Please enter the greeting/address again.",
+    },
+    "recipient_address_confirm": {
+        "ru": "Добавить это обращение в открытку: <b>{value}</b>?\n\nВсё верно?",
+        "en": "Add this greeting/address to the card: <b>{value}</b>?\n\nIs that correct?",
+    },
+    "confirmed_recipient_address": {
+        "ru": "✅ Обращение: {value}",
+        "en": "✅ Greeting/address: {value}",
+    },
+    "invalid_recipient_address": {
+        "ru": (
+            "Не получилось понять обращение. Напишите короткую фразу — "
+            "например: «Любимая мама» или «Дорогие коллеги» — или отправьте голосовое."
+        ),
+        "en": (
+            "I couldn’t understand that greeting/address. Please type a short phrase — "
+            "e.g. “Dear colleagues” or “My sunshine” — or send a voice message."
+        ),
+    },
+    "step6_signature_toggle": {
+        "ru": "Добавить подпись?",
+        "en": "Add a signature?",
+    },
+    "wizard_signature_ask": {
+        "ru": (
+            "Какую подпись добавить в открытку?\n\n"
+            "<b>Примеры:</b> С любовью, Лена; От Маши; Твой друг; Обнимаю"
+        ),
+        "en": (
+            "What signature should be added to the card?\n\n"
+            "<b>Examples:</b> With love, Lena; From Masha; Your friend; Hugs"
+        ),
+    },
+    "wizard_signature_retry": {
+        "ru": "Введите подпись ещё раз — текстом или голосом.",
+        "en": "Enter the signature again — type or send a voice message.",
+    },
+    "signature_confirm": {
+        "ru": "Добавить эту подпись: <b>{signature}</b>?\n\nВсё верно?",
+        "en": "Add this signature: <b>{signature}</b>?\n\nIs that correct?",
+    },
+    "confirmed_signature": {
+        "ru": "✅ Подпись: {signature}",
+        "en": "✅ Signature: {signature}",
+    },
+    "invalid_signature": {
+        "ru": (
+            "Не получилось понять подпись. Напишите короткую фразу — "
+            "например: «С любовью, Лена» — или отправьте голосовое."
+        ),
+        "en": (
+            "I couldn’t understand that signature. Please type a short phrase — "
+            "e.g. “With love, Lena” — or send a voice message."
+        ),
+    },
+    "btn_wizard_yes": {
+        "ru": "✅ Да",
+        "en": "✅ Yes",
+    },
+    "btn_wizard_no": {
+        "ru": "➖ Нет",
+        "en": "➖ No",
+    },
+    "only_text_voice_recipient_address": {
+        "ru": "На этом шаге отправьте обращение текстом или голосовым сообщением.",
+        "en": "On this step, send the greeting/address as text or a voice message.",
+    },
+    "only_text_voice_signature": {
+        "ru": "На этом шаге отправьте подпись текстом или голосовым сообщением.",
+        "en": "On this step, send the signature as text or a voice message.",
+    },
+    "empty_recipient_address": {
+        "ru": "Обращение не может быть пустым. Напишите текстом или отправьте голосовое.",
+        "en": "The greeting/address can’t be empty. Type it or send a voice message.",
+    },
+    "empty_signature": {
+        "ru": "Подпись не может быть пустой. Напишите подпись текстом или отправьте голосовое.",
+        "en": "The signature can’t be empty. Type a signature or send a voice message.",
+    },
+    "toggle_recipient_no": {
+        "ru": "➖ Без обращения",
+        "en": "➖ No greeting/address",
+    },
+    "toggle_recipient_yes": {
+        "ru": "✅ Добавим обращение",
+        "en": "✅ Greeting/address added",
+    },
+    "toggle_signature_no": {
+        "ru": "➖ Без подписи",
+        "en": "➖ No signature",
+    },
+    "toggle_signature_yes": {
+        "ru": "✅ Добавим подпись",
+        "en": "✅ Signature added",
     },
     "step2_holiday": {
         "ru": (
@@ -522,9 +715,23 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "Другая картинка",
         "en": "New image",
     },
-    "change_language": {
-        "ru": "Сменить язык",
-        "en": "Change language",
+    "regen_card_lang_en": {
+        "ru": "In English",
+        "en": "In English",
+    },
+    "regen_card_lang_ru": {
+        "ru": "На русском",
+        "en": "На русском",
+    },
+    "card_ready_menu": {
+        "ru": (
+            "Если захочешь сделать ещё одну открытку — кнопка уже внизу. "
+            "Там же можно открыть профиль или помощь."
+        ),
+        "en": (
+            "Want to make another card? The button is below. "
+            "You can also open your profile or help there."
+        ),
     },
     "reminder_fallback": {
         "ru": (

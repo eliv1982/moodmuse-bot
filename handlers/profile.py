@@ -19,6 +19,7 @@ from handlers.states import ProfileStates
 from services.providers.stt_factory import SpeechToTextError, stt_configured, transcribe_audio
 from services.storage import get_storage
 from utils.i18n import Lang, t
+from utils.main_menu import main_menu_reply_keyboard
 from utils.profile_name_confirm import (
     CB_PROFILE_NAME_CHANGE,
     CB_PROFILE_NAME_OK,
@@ -158,7 +159,7 @@ async def _finish_onboarding(message: Message, state: FSMContext, lang: Lang) ->
     await state.clear()
     await message.answer(
         t("onboarding_done", lang),
-        reply_markup=home_keyboard(lang),
+        reply_markup=main_menu_reply_keyboard(lang),
         parse_mode=ParseMode.HTML,
     )
 
@@ -320,7 +321,15 @@ async def on_profile_home(cq: CallbackQuery, state: FSMContext) -> None:
         return
     await state.clear()
     lang = _user_lang(cq.from_user.id)
-    await _edit_inline_screen(cq, t("home_welcome", lang), home_keyboard(lang))
+    try:
+        await cq.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    await cq.message.answer(
+        t("home_return", lang),
+        reply_markup=main_menu_reply_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
     await cq.answer()
 
 
@@ -578,16 +587,11 @@ async def on_name_non_text_voice(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "change_lang")
 async def on_change_lang_redirect(cq: CallbackQuery) -> None:
-    """Legacy entry points (e.g. after card) open profile language screen."""
-    if not cq.message:
+    """Legacy callback from old after-card keyboards — card text language only."""
+    if not cq.message or not cq.from_user:
         return
-    lang = _user_lang(cq.from_user.id) if cq.from_user else "ru"
-    await _edit_inline_screen(
-        cq,
-        t("profile_screen_lang", lang),
-        profile_language_keyboard(lang),
-    )
-    await cq.answer()
+    lang = _user_lang(cq.from_user.id)
+    await cq.answer(t("stale_callback", lang), show_alert=True)
 
 
 @router.callback_query(F.data.func(lambda d: bool(d and is_profile_callback(d))))

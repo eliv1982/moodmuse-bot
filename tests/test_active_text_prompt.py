@@ -64,6 +64,7 @@ async def test_apply_confirmed_image_voice_deletes_prompt() -> None:
 @pytest.mark.asyncio
 async def test_apply_confirmed_holiday_voice_deletes_prompt() -> None:
     state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"holiday": "8 марта"})
     state.update_data = AsyncMock()
     state.set_state = AsyncMock()
 

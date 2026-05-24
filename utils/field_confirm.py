@@ -13,6 +13,9 @@ from utils.i18n import Lang, t
 
 FIELD_IMAGE = "image_description"
 FIELD_HOLIDAY = "holiday"
+FIELD_OCCASION_DETAILS = "occasion_details"
+FIELD_RECIPIENT_ADDRESS = "recipient_address"
+FIELD_SENDER_SIGNATURE = "sender_signature"
 
 # Legacy aliases (voice_confirm module name in imports)
 VOICE_FIELD_IMAGE = FIELD_IMAGE
@@ -57,11 +60,23 @@ PENDING_VOICE_CONFIRM_MESSAGE_ID_KEY = PENDING_TEXT_CONFIRM_MESSAGE_ID_KEY
 _STATE_FOR_FIELD: dict[str, str] = {
     FIELD_IMAGE: CardStates.image_description.state,
     FIELD_HOLIDAY: CardStates.holiday.state,
+    FIELD_OCCASION_DETAILS: CardStates.occasion_details.state,
+    FIELD_RECIPIENT_ADDRESS: CardStates.recipient_address.state,
+    FIELD_SENDER_SIGNATURE: CardStates.sender_signature.state,
 }
 
 _FIELD_PROMPT: dict[str, tuple[str, str]] = {
     FIELD_IMAGE: ("image_idea_custom_prompt", "image_custom"),
     FIELD_HOLIDAY: ("step2_holiday", "holiday"),
+    FIELD_OCCASION_DETAILS: ("wizard_occasion_details_ask", "occasion_details"),
+    FIELD_RECIPIENT_ADDRESS: ("wizard_recipient_address_ask", "recipient_address"),
+    FIELD_SENDER_SIGNATURE: ("wizard_signature_ask", "sender_signature"),
+}
+
+_FIELD_REPROMPT: dict[str, str] = {
+    FIELD_OCCASION_DETAILS: "wizard_occasion_details_retry",
+    FIELD_RECIPIENT_ADDRESS: "wizard_recipient_address_retry",
+    FIELD_SENDER_SIGNATURE: "wizard_signature_retry",
 }
 
 
@@ -69,10 +84,26 @@ def escape_field_display(text: str) -> str:
     return html.escape(text.strip())
 
 
-def format_field_confirm_prompt(lang: Lang, recognized_text: str, *, source: TextSource) -> str:
+def format_field_confirm_prompt(
+    lang: Lang,
+    recognized_text: str,
+    *,
+    source: TextSource,
+    field: str | None = None,
+) -> str:
+    if field == FIELD_OCCASION_DETAILS:
+        return t("occasion_details_confirm", lang, value=escape_field_display(recognized_text))
+    if field == FIELD_RECIPIENT_ADDRESS:
+        return t("recipient_address_confirm", lang, value=escape_field_display(recognized_text))
+    if field == FIELD_SENDER_SIGNATURE:
+        return t("signature_confirm", lang, signature=escape_field_display(recognized_text))
     if source == TEXT_SOURCE_VOICE:
         return t("voice_confirm_prompt", lang, text=escape_field_display(recognized_text))
     return t("text_confirm_prompt", lang, text=escape_field_display(recognized_text))
+
+
+def field_reprompt_key(field: str) -> str | None:
+    return _FIELD_REPROMPT.get(field)
 
 
 def field_confirm_button_labels(lang: Lang, field: str) -> dict[str, str]:
@@ -118,6 +149,13 @@ def field_prompt_for_field(field: str) -> tuple[str, str] | None:
     if not pair:
         return None
     return pair
+
+
+def field_prompt_i18n_key(field: str, *, reprompt: bool = False) -> str | None:
+    if reprompt:
+        return field_reprompt_key(field)
+    pair = field_prompt_for_field(field)
+    return pair[0] if pair else None
 
 
 def pending_text_payload(

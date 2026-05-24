@@ -47,6 +47,8 @@ async def build_draft_image_prompt(
     image_description: str,
     holiday: str,
     lang: Lang,
+    occasion_details: Optional[str] = None,
+    recipient_address: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
     """
     Returns (draft_english_prompt, holiday_en_or_none).
@@ -63,6 +65,8 @@ async def build_draft_image_prompt(
         desc_en,
         holiday_en or holiday,
         surprise_phrases=phrases,
+        occasion_details=occasion_details,
+        recipient_address=recipient_address,
     )
     return draft, holiday_en
 
@@ -79,6 +83,9 @@ async def run_card_generation(
     image_prompt_override: Optional[str] = None,
     refine_prompt: bool = True,
     profile_prefs: Optional[ProfilePreferences] = None,
+    recipient_address: Optional[str] = None,
+    sender_signature: Optional[str] = None,
+    occasion_details: Optional[str] = None,
 ) -> Tuple[bytes, str, str]:
     """
     Returns (image_bytes, caption_html, final_image_prompt_en).
@@ -92,6 +99,8 @@ async def run_card_generation(
             image_description=image_description,
             holiday=holiday,
             lang=lang,
+            occasion_details=occasion_details,
+            recipient_address=recipient_address,
         )
 
     text_provider = get_text_provider(settings)
@@ -119,7 +128,14 @@ async def run_card_generation(
         logger.info("Prompt refine skipped (text provider not configured)")
 
     system_prompt = build_text_system_prompt(
-        occasion, text_style, lang, profile_prefs=profile_prefs
+        occasion,
+        text_style,
+        lang,
+        profile_prefs=profile_prefs,
+        recipient_address=recipient_address,
+        sender_signature=sender_signature,
+        holiday=holiday,
+        occasion_details=occasion_details,
     )
     user_prompt = build_text_user_prompt(holiday, lang)
     text_timeout = (
@@ -164,6 +180,9 @@ async def run_text_only(
     text_style: str,
     lang: Lang,
     profile_prefs: Optional[ProfilePreferences] = None,
+    recipient_address: Optional[str] = None,
+    sender_signature: Optional[str] = None,
+    occasion_details: Optional[str] = None,
 ) -> str:
     text_provider = get_text_provider(settings)
     text_timeout = (
@@ -171,8 +190,30 @@ async def run_text_only(
         if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
         else settings.YANDEX_TIMEOUT
     )
+    ra = recipient_address.strip() if recipient_address else None
+    ss = sender_signature.strip() if sender_signature else None
+    od = occasion_details.strip() if occasion_details else None
+    logger.info(
+        "run_text_only",
+        extra={
+            "event": "run_text_only",
+            "card_lang": lang,
+            "occasion": occasion,
+            "text_style": text_style,
+            "sender_signature_present": bool(ss),
+        },
+    )
     raw = await text_provider.generate_greeting_text(
-        build_text_system_prompt(occasion, text_style, lang, profile_prefs=profile_prefs),
+        build_text_system_prompt(
+            occasion,
+            text_style,
+            lang,
+            profile_prefs=profile_prefs,
+            recipient_address=ra,
+            sender_signature=ss,
+            holiday=holiday,
+            occasion_details=od,
+        ),
         build_text_user_prompt(holiday, lang),
         timeout=text_timeout,
         max_tokens=380,

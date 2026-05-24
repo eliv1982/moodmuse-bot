@@ -11,10 +11,16 @@ ACTIVE_TEXT_PROMPT_MESSAGE_ID_KEY = "active_text_prompt_message_id"
 
 TEXT_FIELD_IMAGE = "image_description"
 TEXT_FIELD_HOLIDAY = "holiday"
+TEXT_FIELD_OCCASION_DETAILS = "occasion_details"
+TEXT_FIELD_RECIPIENT_ADDRESS = "recipient_address"
+TEXT_FIELD_SENDER_SIGNATURE = "sender_signature"
 
 PROMPT_KIND_TO_TEXT_FIELD: dict[str, str] = {
     "image_custom": TEXT_FIELD_IMAGE,
     "holiday": TEXT_FIELD_HOLIDAY,
+    "occasion_details": TEXT_FIELD_OCCASION_DETAILS,
+    "recipient_address": TEXT_FIELD_RECIPIENT_ADDRESS,
+    "sender_signature": TEXT_FIELD_SENDER_SIGNATURE,
 }
 
 

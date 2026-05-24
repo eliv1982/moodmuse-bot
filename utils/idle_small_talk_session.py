@@ -9,7 +9,7 @@ from typing import Any
 from aiogram.fsm.context import FSMContext
 
 from utils.i18n import Lang
-from utils.wizard_input import is_idle_chat_intent, is_small_talk_text
+from utils.wizard_input import is_idle_casual_text, is_idle_chat_intent, is_small_talk_text
 
 IDLE_SMALL_TALK_ACTIVE = "idle_small_talk_active"
 IDLE_SMALL_TALK_TURNS = "idle_small_talk_turns"
@@ -49,12 +49,21 @@ def is_idle_small_talk_session_active(data: dict[str, Any]) -> bool:
 
 
 def should_use_idle_ai(raw: str, lang: Lang, data: dict[str, Any]) -> bool:
-    """Greeting or chat intent starts a session; follow-ups use AI while the session is active."""
+    """Greeting, chat invite, or casual idle text starts AI; follow-ups while session is active."""
     if is_idle_small_talk_session_active(data):
         return True
     if is_small_talk_text(raw, lang):
         return True
-    return is_idle_chat_intent(raw, lang)
+    if is_idle_chat_intent(raw, lang):
+        return True
+    return is_idle_casual_text(raw, lang)
+
+
+def idle_ai_block_reason(raw: str, lang: Lang, data: dict[str, Any]) -> str | None:
+    """Why deterministic routing skips idle AI (for logs). None when AI should run."""
+    if should_use_idle_ai(raw, lang, data):
+        return None
+    return "no_idle_ai_trigger"
 
 
 def next_idle_small_talk_turn(data: dict[str, Any]) -> int:

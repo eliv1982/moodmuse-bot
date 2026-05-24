@@ -33,7 +33,7 @@ async def test_occasion_advances_to_holiday() -> None:
 
 
 @pytest.mark.asyncio
-async def test_holiday_confirmed_advances_to_image_idea() -> None:
+async def test_holiday_confirmed_advances_after_holiday() -> None:
     state = AsyncMock()
     state.update_data = AsyncMock()
     anchor = MagicMock()
@@ -41,15 +41,15 @@ async def test_holiday_confirmed_advances_to_image_idea() -> None:
     with (
         patch.object(main, "validate_holiday", return_value=True),
         patch.object(main, "_finalize_text_step", AsyncMock()),
-        patch.object(main, "_go_to_image_idea_prompt", AsyncMock()) as go_idea,
+        patch.object(main, "_go_after_holiday_confirmed", AsyncMock()) as go_next,
     ):
         await main._apply_confirmed_holiday(MagicMock(), state, anchor, "ru", "8 Марта")
 
-    go_idea.assert_awaited_once_with(anchor, state, "ru")
+    go_next.assert_awaited_once_with(anchor, state, "ru")
 
 
 @pytest.mark.asyncio
-async def test_holiday_voice_confirm_advances_to_image_idea() -> None:
+async def test_holiday_birthday_confirmed_advances_to_details_flow() -> None:
     state = AsyncMock()
     state.update_data = AsyncMock()
     anchor = MagicMock()
@@ -57,13 +57,13 @@ async def test_holiday_voice_confirm_advances_to_image_idea() -> None:
     with (
         patch.object(main, "validate_holiday", return_value=True),
         patch.object(main, "_finalize_text_step", AsyncMock()),
-        patch.object(main, "_go_to_image_idea_prompt", AsyncMock()) as go_idea,
+        patch.object(main, "_go_after_holiday_confirmed", AsyncMock()) as go_next,
     ):
         await main._apply_confirmed_holiday_voice(
             MagicMock(), state, anchor, "ru", "день рождения"
         )
 
-    go_idea.assert_awaited_once_with(anchor, state, "ru")
+    go_next.assert_awaited_once_with(anchor, state, "ru")
 
 
 @pytest.mark.asyncio
@@ -155,8 +155,9 @@ def test_go_to_image_idea_prompt_uses_question_keyboard() -> None:
 def test_resend_prompt_order_holiday_before_image_idea() -> None:
     source = inspect.getsource(main._resend_current_prompt)
     holiday_pos = source.index("CardStates.holiday.state")
+    details_pos = source.index("CardStates.occasion_details_toggle.state")
     image_pos = source.index("CardStates.image_description.state")
-    assert holiday_pos < image_pos
+    assert holiday_pos < details_pos < image_pos
 
 
 def test_generation_summary_field_order() -> None:
