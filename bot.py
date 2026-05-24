@@ -14,7 +14,7 @@ from aiogram.enums import ParseMode
 
 from config import Settings, get_settings
 from services.providers.stt_factory import normalize_stt_provider_name
-from handlers import admin_router, main_router
+from handlers import admin_router, main_router, profile_router
 from handlers.middlewares import MaintenanceMiddleware
 from services.storage import init_storage
 from utils.bot_commands import setup_bot_commands
@@ -124,6 +124,7 @@ async def main() -> None:
     dp = Dispatcher()
     dp.update.middleware(MaintenanceMiddleware())
     dp.include_router(admin_router)
+    dp.include_router(profile_router)
     dp.include_router(main_router)
 
     try:

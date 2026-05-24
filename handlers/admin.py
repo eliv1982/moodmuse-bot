@@ -1,15 +1,19 @@
 """
-Admin commands: stats, small talk toggle, maintenance banner.
+Admin commands: stats, small talk toggle, maintenance banner, dev profile reset.
 """
 import logging
 
 from aiogram import Router
+from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from config import get_settings
-from handlers.filters import AdminFilter
+from handlers.filters import AdminFilter, is_admin_user_id
+from handlers.profile import perform_dev_profile_reset
 from services.storage import get_storage
+from utils.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +71,16 @@ async def cmd_maintenance(message: Message) -> None:
         await message.answer("Maintenance message set. Non-admins will see it on each update.")
     uid = message.from_user.id if message.from_user else None
     logger.info("admin_maintenance", extra={"user_id": uid, "event": "admin_config"})
+
+
+@router.message(Command("dev_reset_me"))
+async def cmd_dev_reset_me(message: Message, state: FSMContext) -> None:
+    uid = message.from_user.id if message.from_user else 0
+    lang = "en" if get_storage().get_user_lang(uid) == "en" else "ru"
+    if not is_admin_user_id(uid):
+        await message.answer(t("dev_reset_denied", lang), parse_mode=ParseMode.HTML)
+        return
+    lang = await perform_dev_profile_reset(uid, state)
+    await message.answer(t("dev_reset_done", lang), parse_mode=ParseMode.HTML)
+    uid_log = message.from_user.id if message.from_user else None
+    logger.info("admin_dev_reset_me", extra={"user_id": uid_log, "event": "admin_dev_reset"})

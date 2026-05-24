@@ -218,6 +218,29 @@ def is_small_talk_text(text: str, lang: Lang) -> bool:
     return False
 
 
+_RU_IDLE_CHAT_FRAGMENTS = (
+    "поговор",
+    "поболт",
+    "пообщ",
+    "разгов",
+    "болт",
+)
+_EN_IDLE_CHAT_FRAGMENTS = (
+    "talk",
+    "chat",
+    "convers",
+)
+
+
+def is_idle_chat_intent(text: str, lang: Lang) -> bool:
+    """Casual chat invitations at the home menu (not wizard field input)."""
+    normalized = _normalize_small_talk(text)
+    if len(normalized) < 4:
+        return False
+    frags = _EN_IDLE_CHAT_FRAGMENTS if lang == "en" else _RU_IDLE_CHAT_FRAGMENTS
+    return any(frag in normalized for frag in frags)
+
+
 def _letters(text: str) -> list[str]:
     return [c for c in text if c.isalpha()]
 

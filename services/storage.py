@@ -12,6 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from utils.profile_preferences import (
+    ProfilePreferences,
+    merge_profile_preference,
+    normalize_profile_preferences,
+)
+
 
 _lock = threading.Lock()
 
@@ -113,6 +119,13 @@ class BotStorage:
                 CREATE INDEX IF NOT EXISTS idx_gen_log_ts ON generation_log(ts);
                 """
             )
+            try:
+                conn.execute(
+                    "ALTER TABLE user_prefs ADD COLUMN profile_preferences_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
 
     def get_user_lang(self, user_id: int) -> Optional[str]:
         with self._conn() as conn:
@@ -133,6 +146,63 @@ class BotStorage:
                 """,
                 (user_id, lang),
             )
+
+    def get_profile_preferences(self, user_id: int) -> ProfilePreferences:
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT profile_preferences_json FROM user_prefs WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+        except sqlite3.OperationalError:
+            return normalize_profile_preferences(None)
+        if not row:
+            return normalize_profile_preferences(None)
+        raw = row["profile_preferences_json"] if "profile_preferences_json" in row.keys() else None
+        if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+            return normalize_profile_preferences(None)
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return normalize_profile_preferences(None)
+        return normalize_profile_preferences(parsed)
+
+    def set_profile_preferences(self, user_id: int, prefs: ProfilePreferences) -> None:
+        payload = json.dumps(prefs.to_dict(), ensure_ascii=False)
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_prefs (user_id, lang, profile_preferences_json)
+                VALUES (?, 'ru', ?)
+                ON CONFLICT(user_id) DO UPDATE SET profile_preferences_json = excluded.profile_preferences_json
+                """,
+                (user_id, payload),
+            )
+
+    def update_profile_preference(
+        self,
+        user_id: int,
+        **fields: str,
+    ) -> ProfilePreferences:
+        current = self.get_profile_preferences(user_id)
+        merged = merge_profile_preference(
+            current,
+            display_name=fields.get("display_name"),
+            address_style=fields.get("address_style"),
+            text_tone=fields.get("text_tone"),
+            text_length=fields.get("text_length"),
+        )
+        self.set_profile_preferences(user_id, merged)
+        return merged
+
+    def user_needs_profile_onboarding(self, user_id: int) -> bool:
+        prefs = self.get_profile_preferences(user_id)
+        return not prefs.has_saved_display_name()
+
+    def reset_user_profile_data(self, user_id: int) -> None:
+        """Clear this user's profile/onboarding row; keep generation history and last card."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM user_prefs WHERE user_id = ?", (user_id,))
 
     def get_daily_count(self, user_id: int, day: Optional[str] = None) -> int:
         d = day or utc_today()

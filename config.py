@@ -91,6 +91,21 @@ class Settings(BaseSettings):
     OPENAI_STT_MODEL: str = "gpt-4o-mini-transcribe"
     FFMPEG_BINARY: str = "ffmpeg"
 
+    @field_validator("DAILY_GENERATION_LIMIT", mode="before")
+    @classmethod
+    def parse_daily_generation_limit(cls, v: object) -> int:
+        if v is None or (isinstance(v, str) and not str(v).strip()):
+            return 5
+        try:
+            parsed = int(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            logger.warning("Invalid DAILY_GENERATION_LIMIT=%r, using 5", v)
+            return 5
+        if parsed < 0:
+            logger.warning("Invalid DAILY_GENERATION_LIMIT=%r, using 5", v)
+            return 5
+        return parsed
+
     @field_validator("DATA_DIR", mode="before")
     @classmethod
     def parse_data_dir(cls, v: object) -> Path:

@@ -47,7 +47,7 @@ def test_pending_voice_payload_stores_message_ids() -> None:
 
 def test_voice_confirm_prompt_ru_localized() -> None:
     text = format_voice_confirm_prompt("ru", "щенок на снегу")
-    assert "Я распознала так" in text
+    assert "Я распознал так" in text
     assert "«щенок на снегу»" in text
 
 

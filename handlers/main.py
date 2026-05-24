@@ -16,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import Settings, get_settings
-from handlers.states import CardStates
+from handlers.states import CardStates, ProfileStates
 from services.card_generation import run_card_generation, run_image_only, run_text_only
 from services.proxi import ProxiAPIError
 from services.providers.factory import (
@@ -95,6 +95,9 @@ from utils.wizard_ui import (
     IMAGE_IDEA_SURPRISE,
     image_idea_keyboard,
 )
+from handlers.profile import home_keyboard, start_profile_onboarding
+from utils.generation_limit import can_consume_generation, should_increment_daily_count
+from utils.profile_preferences import resolve_display_name
 from utils.prompts import (
     IMAGE_STYLE_CALLBACKS,
     IMAGE_STYLE_KEYBOARD_ORDER,
@@ -756,28 +759,6 @@ def _image_idea_inline_keyboard(lang: Lang, settings: Settings) -> InlineKeyboar
     return InlineKeyboardMarkup(inline_keyboard=inline_rows)
 
 
-def is_admin_user(uid: int, settings: Settings) -> bool:
-    return uid in settings.admin_ids()
-
-
-def can_consume_generation(uid: int, settings: Settings) -> bool:
-    if is_admin_user(uid, settings):
-        return True
-    return get_storage().get_daily_count(uid) < settings.DAILY_GENERATION_LIMIT
-
-
-def home_keyboard(lang: Lang) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t("btn_create_card", lang), callback_data="action_create_card")],
-            [
-                InlineKeyboardButton(text=t("btn_help_short", lang), callback_data="action_help"),
-                InlineKeyboardButton(text=t("btn_change_lang_short", lang), callback_data="change_lang"),
-            ],
-        ]
-    )
-
-
 def language_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -888,8 +869,14 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     if lang_stored in ("ru", "en"):
         await state.update_data(lang=lang_stored)
     logger.info("start", extra={"user_id": uid, "event": "start"})
+    if storage.user_needs_profile_onboarding(uid):
+        await start_profile_onboarding(message, state, lang)
+        return
+    prefs = storage.get_profile_preferences(uid)
+    first = message.from_user.first_name if message.from_user else None
+    name = resolve_display_name(prefs, first) or first or ("friend" if lang == "en" else "друг")
     await message.answer(
-        t("home_welcome", lang),
+        t("start_returning", lang, name=name),
         reply_markup=home_keyboard(lang),
         parse_mode=ParseMode.HTML,
     )
@@ -932,11 +919,17 @@ async def on_action_help(cq: CallbackQuery) -> None:
 
 @router.message(Command("lang"))
 async def cmd_lang(message: Message, state: FSMContext) -> None:
+    from utils.profile_ui import profile_language_keyboard
+
     uid = message.from_user.id if message.from_user else 0
     cur = coalesce_lang(get_storage().get_user_lang(uid))
     await clear_idle_small_talk_session(state)
-    await state.set_state(CardStates.choosing_language)
-    await message.answer(t("pick_language", cur), reply_markup=language_keyboard())
+    await state.clear()
+    await message.answer(
+        t("profile_screen_lang", cur),
+        reply_markup=profile_language_keyboard(cur),
+        parse_mode=ParseMode.HTML,
+    )
     logger.info("cmd_lang", extra={"user_id": uid, "event": "cmd_lang"})
 
 
@@ -1003,16 +996,6 @@ async def on_language_chosen(cq: CallbackQuery, state: FSMContext) -> None:
         return
 
     await cq.message.answer(t("lang_saved", lang), parse_mode=ParseMode.HTML)
-
-
-@router.callback_query(F.data == "change_lang")
-async def on_change_lang(cq: CallbackQuery, state: FSMContext) -> None:
-    if not cq.from_user or not cq.message:
-        return
-    cur = coalesce_lang(get_storage().get_user_lang(cq.from_user.id))
-    await state.set_state(CardStates.choosing_language)
-    await cq.message.answer(t("pick_language", cur), reply_markup=language_keyboard())
-    await cq.answer()
 
 
 # ----- Occasion -----
@@ -1396,7 +1379,7 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         return
 
     if not can_consume_generation(uid, settings):
-        await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
+        await cq.answer(t("rate_limited", lang), show_alert=True)
         return
 
     await state.update_data(text_style=cq.data)
@@ -1422,6 +1405,8 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     status_msg = await cq.message.answer(summary, parse_mode=ParseMode.HTML)
     await cq.answer()
 
+    profile_prefs = get_storage().get_profile_preferences(uid)
+
     try:
         image_bytes, caption_html, final_prompt = await run_card_generation(
             settings,
@@ -1433,6 +1418,7 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
             lang=lang,
             refine_prompt=True,
             image_prompt_override=None,
+            profile_prefs=profile_prefs,
         )
     except (ProxiAPIError, OpenAIImageError) as e:
         logger.exception("Image provider failed: %s", e, extra={"user_id": uid, "event": "error"})
@@ -1499,7 +1485,7 @@ async def on_text_style(cq: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         caption_html=caption_html,
     )
     get_storage().save_last_card(uid, ctx)
-    if not is_admin_user(uid, settings):
+    if should_increment_daily_count(uid, settings):
         get_storage().increment_generation(uid)
     await state.set_state(CardStates.choosing_occasion)
     logger.info("generation_ok", extra={"user_id": uid, "event": "generation_ok"})
@@ -1548,7 +1534,7 @@ async def regen_text(cq: CallbackQuery) -> None:
         await cq.answer(t("no_saved_card", lang), show_alert=True)
         return
     if not can_consume_generation(uid, settings):
-        await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
+        await cq.answer(t("rate_limited", lang), show_alert=True)
         return
     if not text_provider_configured(settings):
         await cq.answer(
@@ -1568,6 +1554,7 @@ async def regen_text(cq: CallbackQuery) -> None:
             holiday=ctx.holiday,
             text_style=ctx.text_style,
             lang=coalesce_lang(ctx.lang),
+            profile_prefs=get_storage().get_profile_preferences(uid),
         )
     except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
         logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
@@ -1583,7 +1570,7 @@ async def regen_text(cq: CallbackQuery) -> None:
     if sent.photo:
         ctx.photo_file_id = sent.photo[-1].file_id
     get_storage().save_last_card(uid, ctx)
-    if not is_admin_user(uid, settings):
+    if should_increment_daily_count(uid, settings):
         get_storage().increment_generation(uid)
     logger.info("regen_text_ok", extra={"user_id": uid, "event": "regen_text"})
 
@@ -1600,7 +1587,7 @@ async def regen_image(cq: CallbackQuery) -> None:
         await cq.answer(t("no_saved_card", lang), show_alert=True)
         return
     if not can_consume_generation(uid, settings):
-        await cq.answer(t("rate_limited", lang, limit=settings.DAILY_GENERATION_LIMIT), show_alert=True)
+        await cq.answer(t("rate_limited", lang), show_alert=True)
         return
     if not image_provider_configured(settings):
         await cq.answer(
@@ -1635,7 +1622,7 @@ async def regen_image(cq: CallbackQuery) -> None:
     if sent.photo:
         ctx.photo_file_id = sent.photo[-1].file_id
     get_storage().save_last_card(uid, ctx)
-    if not is_admin_user(uid, settings):
+    if should_increment_daily_count(uid, settings):
         get_storage().increment_generation(uid)
     logger.info("regen_image_ok", extra={"user_id": uid, "event": "regen_image"})
 
@@ -1714,8 +1701,21 @@ async def on_lang_wait_other(message: Message, state: FSMContext) -> None:
 
 # ----- Small talk -----
 
+_NON_IDLE_TEXT_STATES = (
+    CardStates.choosing_language,
+    CardStates.choosing_occasion,
+    CardStates.image_description,
+    CardStates.holiday,
+    CardStates.image_style,
+    CardStates.text_style,
+    CardStates.generating,
+    ProfileStates.onboarding_name,
+    ProfileStates.confirming_name,
+    ProfileStates.editing_name,
+)
 
-@router.message(StateFilter(None), F.text)
+
+@router.message(~StateFilter(*_NON_IDLE_TEXT_STATES), F.text)
 async def on_small_talk(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if raw.startswith("/"):
