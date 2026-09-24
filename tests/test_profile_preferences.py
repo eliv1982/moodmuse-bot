@@ -349,6 +349,22 @@ def test_profile_main_summary_text_no_gender() -> None:
     assert "Gender" not in text
 
 
+def test_profile_main_text_escapes_telegram_first_name() -> None:
+    text = profile_main_text(
+        default_profile_preferences(), "ru", ui_lang="ru", telegram_first_name="<b>Tom & Jerry"
+    )
+    assert "&lt;b&gt;Tom &amp; Jerry" in text
+    assert "<b>Tom" not in text
+    assert "Tom & Jerry" not in text
+
+
+def test_profile_main_text_keeps_saved_display_name_intact() -> None:
+    prefs = merge_profile_preference(default_profile_preferences(), display_name="D'Arcy Lee")
+    text = profile_main_text(prefs, "en", ui_lang="en", telegram_first_name="<ignored>")
+    assert "D'Arcy Lee" in text
+    assert "ignored" not in text
+
+
 def test_onboarding_first_message_copy() -> None:
     """First-start onboarding uses the warm intro, not the old short greeting."""
     ru = t("onboarding_ask_name", "ru")

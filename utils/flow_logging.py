@@ -1,5 +1,5 @@
 """
-Structured flow logs for Telegram routing and generation (no secrets or full prompts).
+Structured flow logs for Telegram routing and generation (no secrets, full prompts or raw chat text).
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def log_idle_route(
     *,
     user_id: int,
     fsm_state: str | None,
-    text: str,
+    text_len: int,
     intent: IdleRouteIntent,
     handler_path: str,
 ) -> None:
@@ -46,7 +46,7 @@ def log_idle_route(
         "idle_route",
         user_id=user_id,
         fsm_state=fsm_state or "none",
-        text=truncate_flow_text(text),
+        text_len=text_len,
         intent=intent,
         handler_path=handler_path,
     )
@@ -55,7 +55,7 @@ def log_idle_route(
 def log_idle_small_talk_decision(
     *,
     user_id: int,
-    text: str,
+    text_len: int,
     smalltalk_enabled: bool,
     should_use_idle_ai: bool,
     ai_block_reason: str | None = None,
@@ -67,7 +67,7 @@ def log_idle_small_talk_decision(
         "idle_small_talk_decision",
         level=level,
         user_id=user_id,
-        text=truncate_flow_text(text),
+        text_len=text_len,
         smalltalk_enabled=smalltalk_enabled,
         should_use_idle_ai=should_use_idle_ai,
         ai_block_reason=ai_block_reason,
@@ -122,9 +122,9 @@ def log_generation_prompt_context(
         "generation_prompt_context",
         level=level,
         user_id=user_id,
-        holiday=truncate_flow_text(holiday, max_len=80),
-        occasion_details=truncate_flow_text(occasion_details, max_len=80),
-        recipient_address=truncate_flow_text(recipient_address, max_len=40),
+        holiday_len=len(holiday),
+        occasion_details_len=len(occasion_details),
+        recipient_address_len=len(recipient_address),
         sender_signature_present=sender_signature_present,
         ui_lang=ui_lang,
         card_lang=card_lang,

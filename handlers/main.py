@@ -552,7 +552,7 @@ async def _idle_small_talk_reply_text(
         fallback_reason = block_reason
         log_idle_small_talk_decision(
             user_id=user_id,
-            text=raw,
+            text_len=len(raw),
             smalltalk_enabled=False,
             should_use_idle_ai=False,
             ai_block_reason=block_reason,
@@ -565,7 +565,7 @@ async def _idle_small_talk_reply_text(
         fallback_reason = block_reason
         log_idle_small_talk_decision(
             user_id=user_id,
-            text=raw,
+            text_len=len(raw),
             smalltalk_enabled=True,
             should_use_idle_ai=False,
             ai_block_reason=block_reason,
@@ -579,7 +579,7 @@ async def _idle_small_talk_reply_text(
         fallback_reason = block_reason
         log_idle_small_talk_decision(
             user_id=user_id,
-            text=raw,
+            text_len=len(raw),
             smalltalk_enabled=True,
             should_use_idle_ai=True,
             ai_block_reason=block_reason,
@@ -593,7 +593,7 @@ async def _idle_small_talk_reply_text(
         fallback_reason = "max_turns_exceeded"
         log_idle_small_talk_decision(
             user_id=user_id,
-            text=raw,
+            text_len=len(raw),
             smalltalk_enabled=True,
             should_use_idle_ai=True,
             ai_block_reason="max_turns_exceeded",
@@ -609,7 +609,7 @@ async def _idle_small_talk_reply_text(
         ai_called = True
         log_idle_small_talk_decision(
             user_id=user_id,
-            text=raw,
+            text_len=len(raw),
             smalltalk_enabled=True,
             should_use_idle_ai=True,
             ai_called=True,
@@ -622,7 +622,7 @@ async def _idle_small_talk_reply_text(
             await mark_idle_small_talk_turn(state, min(turn, MAX_IDLE_SMALL_TALK_TURNS))
         log_idle_small_talk_decision(
             user_id=user_id,
-            text=raw,
+            text_len=len(raw),
             smalltalk_enabled=True,
             should_use_idle_ai=True,
             ai_called=ai_called,
@@ -1219,7 +1219,7 @@ async def _run_card_generation_from_wizard(
         )
     except (ProxiAPIError, OpenAIImageError) as e:
         logger.exception("Image provider failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_image", lang, err=e))
+        await status_msg.edit_text(t("err_image", lang))
         await state.set_state(CardStates.signature_toggle)
         await anchor.answer(
             t("step6_signature_toggle", lang),
@@ -1229,7 +1229,7 @@ async def _run_card_generation_from_wizard(
         return
     except (YandexGPTError, OpenAITextError) as e:
         logger.exception("Text provider failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_text", lang, err=e))
+        await status_msg.edit_text(t("err_text", lang))
         await state.set_state(CardStates.signature_toggle)
         await anchor.answer(
             t("step6_signature_toggle", lang),
@@ -1249,7 +1249,7 @@ async def _run_card_generation_from_wizard(
         return
     except Exception as e:
         logger.exception("generation failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_generic", lang, err=e))
+        await status_msg.edit_text(t("err_generic", lang))
         await state.set_state(CardStates.signature_toggle)
         await anchor.answer(
             t("step6_signature_toggle", lang),
@@ -2236,7 +2236,7 @@ async def regen_text(cq: CallbackQuery) -> None:
         )
     except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
         logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await cq.message.answer(t("err_text", ui_lang, err=e))
+        await cq.message.answer(t("err_text", ui_lang))
         return
     sent = await cq.message.answer_photo(
         photo=photo_id,
@@ -2284,7 +2284,7 @@ async def regen_image(cq: CallbackQuery) -> None:
         image_bytes, used = await run_image_only(settings, new_prompt or base)
     except (ProxiAPIError, OpenAIImageError) as e:
         logger.warning("regen_image failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await cq.message.answer(t("err_image", ui_lang, err=e))
+        await cq.message.answer(t("err_image", ui_lang))
         return
     except asyncio.TimeoutError:
         await cq.message.answer(t("err_timeout", ui_lang))
@@ -2361,7 +2361,7 @@ async def regen_card_lang(cq: CallbackQuery) -> None:
         )
     except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
         logger.warning("regen_card_lang failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await cq.message.answer(t("err_text", ui_lang, err=e))
+        await cq.message.answer(t("err_text", ui_lang))
         return
     sent = await cq.message.answer_photo(
         photo=photo_id,
@@ -2487,7 +2487,7 @@ async def on_small_talk(message: Message, state: FSMContext) -> None:
     log_idle_route(
         user_id=uid,
         fsm_state=fsm_state,
-        text=raw,
+        text_len=len(raw),
         intent=intent,
         handler_path=handler_path,
     )

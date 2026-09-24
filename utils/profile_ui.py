@@ -3,6 +3,7 @@ Profile settings screens: summary text and inline keyboards.
 """
 from __future__ import annotations
 
+import html
 from typing import Optional
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -60,7 +61,8 @@ def profile_main_text(
     ui_lang: Lang,
     telegram_first_name: Optional[str] = None,
 ) -> str:
-    name = resolve_display_name(prefs, telegram_first_name)
+    # Telegram first_name is not validated like a saved display name; the screen is sent as HTML.
+    name = html.escape(resolve_display_name(prefs, telegram_first_name), quote=False)
     name_display = name if name else t("profile_name_not_set", ui_lang)
     return t(
         "profile_settings_title",
