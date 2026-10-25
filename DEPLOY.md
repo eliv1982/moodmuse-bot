@@ -105,8 +105,13 @@ PROXI_BASE_URL=https://openai.api.proxyapi.ru
 YANDEX_API_KEY=ваш_api_ключ
 YANDEX_FOLDER_ID=b1gxxxxxxxxxxxxxxxxxxxx
 
+# Кто может пользоваться ботом (Telegram user id через запятую). ОБЯЗАТЕЛЬНО:
+# пусто или с ошибкой — бот не отвечает никому, кроме короткого уведомления «доступ по приглашению».
+ALLOWED_USER_IDS=<ваш_telegram_id>
+
 # Админы (Telegram user id через запятую) — лимиты не действуют, доступ к /stats и др.
-# ADMIN_USER_IDS=123456789
+# Админ должен быть указан и в ALLOWED_USER_IDS: доступ сам по себе админство не даёт.
+# ADMIN_USER_IDS=<ваш_telegram_id>
 
 # По желанию: LOG_LEVEL=DEBUG, LOG_JSON=true, DATA_DIR=/app/data
 ```
@@ -116,6 +121,14 @@ YANDEX_FOLDER_ID=b1gxxxxxxxxxxxxxxxxxxxx
 ```bash
 chmod 600 .env
 ```
+
+**Как узнать свой Telegram user id.** Запустите бота с пустым `ALLOWED_USER_IDS`, напишите ему любое сообщение со своего аккаунта и найдите в логах строку `access_denied user_id=...`:
+
+```bash
+docker compose logs bot | grep access_denied
+```
+
+Впишите это число в `.env` и перезапустите контейнер (см. п. 8.1: `docker compose restart` переменные из `.env` **не перечитывает** — нужен `docker compose up -d --force-recreate`). Токен бота для этого никому передавать не нужно. Список читается один раз при старте; перезапуск сбрасывает незавершённые сценарии (они хранятся в памяти), так что пользователям придётся отправить `/start` заново.
 
 ---
 
@@ -238,6 +251,7 @@ docker compose up -d --force-recreate
 ## 9. Безопасность
 
 - Храните `.env` только на сервере, не коммитьте в Git и не копируйте в открытый доступ.
+- Бот закрытый: пользоваться им могут только Telegram id из `ALLOWED_USER_IDS`. Если переменная не задана или записана с ошибкой, бот никого не пускает (в логах при старте будет сообщение `ALLOWED_USER_IDS is missing, empty or invalid`).
 - Для SSH используйте ключи, отключите вход по паролю при возможности.
 - Ограничьте доступ к серверу firewall (например, `ufw`): оставьте открытыми только SSH и при необходимости другие нужные порты. Для самого бота порты не требуются.
 
@@ -268,7 +282,8 @@ docker compose exec bot sh -c 'echo "YANDEX_API_KEY len=${#YANDEX_API_KEY} YANDE
 
 ## 11. Проверка работы бота
 
-1. В Telegram найдите бота по username и отправьте `/start`.
+0. В логах при старте должна быть строка `access_allowlist_loaded users=N`, а не ошибка про `ALLOWED_USER_IDS`.
+1. В Telegram найдите бота по username и отправьте `/start` со своего аккаунта из `ALLOWED_USER_IDS` (с любого другого аккаунта бот ответит только «доступ по приглашению»).
 2. Пройдите сценарий: **для кого** → описание картинки → праздник/повод → стиль картинки → стиль текста → проверьте открытку.
 3. При ошибках смотрите логи: `docker compose logs -f`.
 

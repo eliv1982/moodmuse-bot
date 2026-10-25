@@ -41,7 +41,7 @@ python -m venv .venv
 
 pip install -r requirements.txt
 copy .env.example .env          # Windows: copy; Linux: cp
-# Set BOT_TOKEN, PROXI_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID; optional ADMIN_USER_IDS, TEXT_PROVIDER
+# Set BOT_TOKEN, ALLOWED_USER_IDS, PROXI_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID; optional ADMIN_USER_IDS, TEXT_PROVIDER
 
 python bot.py
 ```
@@ -94,12 +94,27 @@ VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
 | `FFMPEG_BINARY` | Path to `ffmpeg` for Telegram voice `.ogg` → WAV (default `ffmpeg`) |
 | `YANDEX_API_KEY` | Yandex Cloud API key |
 | `YANDEX_FOLDER_ID` | Yandex Cloud folder ID |
-| `ADMIN_USER_IDS` | Comma-separated numeric Telegram user IDs |
+| `ALLOWED_USER_IDS` | **Required.** Comma-separated numeric Telegram user IDs allowed to use the bot; empty or invalid means nobody ([details](#private-access)) |
+| `ADMIN_USER_IDS` | Comma-separated numeric Telegram user IDs (admin commands, limit exemption; does not grant access) |
 | `DAILY_GENERATION_LIMIT` | Per-user daily cap (default 5) |
 | `DATA_DIR` | SQLite directory |
 | `LOG_JSON` | `true` / `false` log format |
 
 Full list: **`.env.example`**.
+
+## Private access
+
+MoodMuse is a private bot: only Telegram users listed in `ALLOWED_USER_IDS` can use it. Anyone else gets a short "invite-only" notice (Russian, or English if their language was saved earlier) and nothing more: no AI or voice-transcription calls, nothing stored for them. The check runs before every command (admin commands included), wizard step, text, voice message and button press. Pressing a button always gets a response, so Telegram's loading spinner never hangs. Repeated messages from the same person get the notice at most once every 10 minutes.
+
+```env
+ALLOWED_USER_IDS=<owner_telegram_id>,<second_user_telegram_id>   # replace with real numeric ids
+```
+
+- **Fails closed.** Missing, empty or malformed means nobody is allowed, and a single malformed entry rejects the whole list (the startup log says so without printing the values). Entries must be plain positive integers.
+- **Admins are not implicitly allowed.** An admin must be listed in both `ALLOWED_USER_IDS` and `ADMIN_USER_IDS`; otherwise admin commands are denied like everything else.
+- **Restart to apply changes.** The list is read once at startup. In Docker, `docker compose restart` does not re-read `.env`; use `docker compose up -d --force-recreate`. A restart also drops in-progress wizard sessions (they are held in memory) and any generation that is running, so people mid-card need to send `/start` again. Adding or removing someone only takes effect after that restart.
+- **Finding your Telegram user ID.** Start the bot with `ALLOWED_USER_IDS` empty, send it any message from your account, and read the `access_denied user_id=...` line in its log (`docker compose logs bot | grep access_denied`). Put that number in `.env` and restart. You do not need to share the bot token with anyone; third-party "what is my ID" bots also work, but the log approach involves no third party.
+- The daily generation limit is a separate cost control, not an access control; it is unchanged.
 
 ## User flow
 
@@ -117,7 +132,7 @@ Free-text answers (typed or voice) are echoed back with an “Is that correct?�
 
 ## Admin commands
 
-Available only to Telegram user IDs listed in `ADMIN_USER_IDS`. Admins are also exempt from the daily generation limit and from maintenance mode. These commands are not shown in the Telegram command menu (which lists `/start`, `/cancel`, `/lang`, `/help`).
+Available only to Telegram user IDs listed in `ADMIN_USER_IDS` **that are also in `ALLOWED_USER_IDS`** (see [Private access](#private-access)). Admins are also exempt from the daily generation limit and from maintenance mode. These commands are not shown in the Telegram command menu (which lists `/start`, `/cancel`, `/lang`, `/help`).
 
 | Command | Effect |
 |---------|--------|

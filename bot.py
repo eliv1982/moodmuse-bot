@@ -15,7 +15,7 @@ from aiogram.enums import ParseMode
 from config import Settings, get_settings
 from services.providers.stt_factory import normalize_stt_provider_name
 from handlers import admin_router, main_router, profile_router
-from handlers.middlewares import MaintenanceMiddleware
+from handlers.middlewares import AccessMiddleware, MaintenanceMiddleware
 from services.storage import init_storage
 from utils.bot_commands import setup_bot_commands
 from utils.logging_config import setup_logging
@@ -93,6 +93,37 @@ def _log_startup_provider_warnings(settings: Settings) -> None:
         )
 
 
+def _log_startup_access(allowed_user_ids: frozenset[int]) -> None:
+    """Allowlist status without listing the ids."""
+    if not allowed_user_ids:
+        logger.error(
+            "ALLOWED_USER_IDS is missing, empty or invalid: every user will be denied. "
+            "Set it to the numeric Telegram user ids allowed to use the bot and restart.",
+            extra={"event": "startup", "component": "access"},
+        )
+        return
+    logger.info(
+        "access_allowlist_loaded users=%d",
+        len(allowed_user_ids),
+        extra={"event": "startup", "component": "access"},
+    )
+
+
+def build_dispatcher(allowed_user_ids: frozenset[int]) -> Dispatcher:
+    # aiogram registers its FSM outer middleware inside Dispatcher.__init__, ahead of anything added later,
+    # so Access can only run first if FSM is created disabled and attached after it:
+    # Errors -> UserContext -> Access -> FSM -> Maintenance (inner) -> routers.
+    # Unauthorized users never allocate FSM state and never reach maintenance handling, routers or providers.
+    dp = Dispatcher(disable_fsm=True)
+    dp.update.outer_middleware(AccessMiddleware(allowed_user_ids))
+    dp.update.outer_middleware(dp.fsm)
+    dp.update.middleware(MaintenanceMiddleware())
+    dp.include_router(admin_router)
+    dp.include_router(profile_router)
+    dp.include_router(main_router)
+    return dp
+
+
 async def main() -> None:
     try:
         settings = get_settings()
@@ -112,6 +143,8 @@ async def main() -> None:
         sys.exit(1)
 
     _log_startup_provider_warnings(settings)
+    allowed_user_ids = settings.allowed_user_ids()
+    _log_startup_access(allowed_user_ids)
 
     db_path = Path(settings.DATA_DIR) / "bot.db"
     init_storage(db_path)
@@ -121,11 +154,7 @@ async def main() -> None:
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher()
-    dp.update.middleware(MaintenanceMiddleware())
-    dp.include_router(admin_router)
-    dp.include_router(profile_router)
-    dp.include_router(main_router)
+    dp = build_dispatcher(allowed_user_ids)
 
     try:
         await setup_bot_commands(bot)

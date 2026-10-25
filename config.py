@@ -3,14 +3,18 @@ Application configuration loaded from environment variables.
 """
 import logging
 import os
+import re
 from pathlib import Path
-from typing import List, Self
+from typing import FrozenSet, List, Self
 
 from dotenv import load_dotenv
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+# Telegram user ids are positive integers; ASCII digits only (int() would also take "1_0", "٣", " +5").
+_USER_ID_RE = re.compile(r"[1-9][0-9]*")
 
 # Загрузка .env до чтения Settings: локально — из каталога проекта; в Docker — часто /app/.env при монтировании.
 # override=False: переменные, уже заданные Docker Compose / ОС, не перезаписываются.
@@ -50,6 +54,10 @@ class Settings(BaseSettings):
 
     # Admin Telegram user IDs (comma-separated)
     ADMIN_USER_IDS: str = ""
+
+    # Telegram user IDs allowed to use the bot at all (comma-separated). Missing, empty or malformed
+    # means nobody is allowed. Not implied by ADMIN_USER_IDS.
+    ALLOWED_USER_IDS: str = ""
 
     # ProxyAPI.ru (images + STT)
     PROXI_API_KEY: str = ""
@@ -166,6 +174,30 @@ class Settings(BaseSettings):
             except ValueError:
                 logger.warning("Invalid ADMIN_USER_IDS entry ignored: %s", part)
         return out
+
+    def allowed_user_ids(self) -> FrozenSet[int]:
+        """
+        Authorized Telegram user IDs; fails closed.
+
+        Missing or empty config yields nobody. A single malformed entry, including an empty or
+        whitespace-only one (``123,``, ``,123``, ``123,,456``), rejects the whole list rather than being
+        skipped, so a typo cannot quietly leave a half-applied allowlist. Entry values are never logged.
+        """
+        raw = (self.ALLOWED_USER_IDS or "").strip()
+        if not raw:
+            return frozenset()
+        out: set[int] = set()
+        for position, part in enumerate(raw.split(","), start=1):
+            part = part.strip()
+            if not _USER_ID_RE.fullmatch(part):
+                logger.error(
+                    "ALLOWED_USER_IDS entry #%d is empty or not a positive numeric Telegram user id; "
+                    "the whole allowlist is rejected and every user is denied",
+                    position,
+                )
+                return frozenset()
+            out.add(int(part))
+        return frozenset(out)
 
 
 def get_settings() -> Settings:

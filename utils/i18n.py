@@ -102,6 +102,16 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "Эта команда доступна только администраторам бота.",
         "en": "This command is available to bot admins only.",
     },
+    "access_denied": {
+        "ru": (
+            "Привет! 🌸 MoodMuse пока работает в закрытом режиме — доступ только по приглашению. "
+            "Если вы считаете, что это ошибка, напишите владельцу бота."
+        ),
+        "en": (
+            "Hi! 🌸 MoodMuse is invite-only for now. "
+            "If you think this is a mistake, please contact the bot owner."
+        ),
+    },
     "profile_btn_back": {
         "ru": "◀️ Назад в профиль",
         "en": "◀️ Back to profile",
