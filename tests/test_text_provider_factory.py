@@ -32,17 +32,19 @@ def _clear_yandex_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("YANDEX_FOLDER_ID", raising=False)
 
 
-def test_settings_default_text_provider_is_yandex(
+def test_settings_default_text_provider_is_openai(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TEXT_PROVIDER", raising=False)
     s = Settings(BOT_TOKEN="test-token", _env_file=None)  # type: ignore[call-arg]
-    assert s.TEXT_PROVIDER == "yandex"
+    assert s.TEXT_PROVIDER == "openai"
 
 
-def test_get_text_provider_default_yandex() -> None:
-    provider = get_text_provider(_settings())
-    assert isinstance(provider, YandexTextProvider)
+def test_get_text_provider_default_is_openai() -> None:
+    provider = get_text_provider(
+        Settings(BOT_TOKEN="test-token", _env_file=None)  # type: ignore[call-arg]
+    )
+    assert isinstance(provider, OpenAITextProvider)
 
 
 def test_get_text_provider_explicit_yandex() -> None:

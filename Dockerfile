@@ -1,4 +1,4 @@
-# MoodMuse — ProxyAPI (images/STT) + YandexGPT (text / prompt refine)
+# MoodMuse — OpenAI (images / text / STT); legacy ProxyAPI + YandexGPT providers still selectable
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -16,5 +16,6 @@ COPY config.py bot.py ./
 COPY handlers/ ./handlers/
 COPY services/ ./services/
 COPY utils/ ./utils/
+COPY assets/ ./assets/
 
 CMD ["python", "-u", "bot.py"]

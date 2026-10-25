@@ -6,6 +6,7 @@ Providers are configured (so handlers *would* call them); only the access gate s
 """
 from __future__ import annotations
 
+import io
 import itertools
 import sqlite3
 from contextlib import closing
@@ -17,6 +18,7 @@ from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
+from PIL import Image
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.dispatcher.middlewares.error import ErrorsMiddleware
@@ -35,6 +37,7 @@ from config import get_settings
 from handlers import admin_router, main_router, profile_router
 from handlers.middlewares import ACCESS_NOTICE_INTERVAL_SECONDS, AccessMiddleware, MaintenanceMiddleware
 from handlers.states import CardStates, ProfileStates
+from services.card_generation import CardTexts, GeneratedCard
 from services.storage import LastCardContext, get_storage
 from utils.i18n import t
 from utils.wizard_personalization import WIZARD_SIGNATURE_NO
@@ -87,6 +90,12 @@ class FakeSession(BaseSession):
 
     def names(self) -> list[str]:
         return [type(c).__name__ for c in self.calls]
+
+
+def _png_bytes() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (256, 256), (40, 60, 90)).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def _user(uid: int) -> dict[str, Any]:
@@ -184,8 +193,14 @@ class Harness:
             small_talk=AsyncMock(return_value="chat reply"),
             stt_main=AsyncMock(return_value="горы"),
             stt_profile=AsyncMock(return_value="Аня"),
-            card=AsyncMock(return_value=(b"png", "<b>caption</b>", "final prompt")),
-            text_only=AsyncMock(return_value="<b>new caption</b>"),
+            card=AsyncMock(
+                return_value=GeneratedCard(
+                    image_bytes=b"png",
+                    texts=CardTexts(caption_html="<b>caption</b>", short_text=""),
+                    image_prompt_en="final prompt",
+                )
+            ),
+            text_only=AsyncMock(return_value=CardTexts(caption_html="<b>new caption</b>", short_text="")),
             image_only=AsyncMock(return_value=(b"png2", "new prompt")),
         )
         monkeypatch.setattr("handlers.main.generate_returning_start_greeting", self.spies.greeting)
@@ -251,7 +266,7 @@ class Harness:
         assert self.fsm_storage.accesses == []
         assert len(self.fsm_storage.storage) == 0
 
-    def seed_card(self, uid: int) -> None:
+    def seed_card(self, uid: int, original: Optional[bytes] = None) -> None:
         get_storage().save_last_card(
             uid,
             LastCardContext(
@@ -264,7 +279,9 @@ class Harness:
                 image_prompt_en="mountains at dawn",
                 photo_file_id="card-photo",
                 caption_html="<b>old caption</b>",
+                short_text="Old phrase" if original else "",
             ),
+            original=original,
         )
 
     def seed_profile(self, uid: int, name: str = "Аня") -> None:
@@ -398,6 +415,48 @@ async def test_authorized_regen_card_lang_reaches_provider(h: Harness) -> None:
     await h.press(AUTH, "regen_card_lang")
 
     h.spies.text_only.assert_awaited_once()
+
+
+async def test_authorized_new_caption_redraws_the_phrase_on_the_stored_original(h: Harness) -> None:
+    original = _png_bytes()
+    h.seed_card(AUTH, original=original)
+    h.spies.text_only.return_value = CardTexts(caption_html="<b>fresh</b>", short_text="Fresh phrase")
+
+    await h.press(AUTH, "regen_text")
+
+    h.spies.text_only.assert_awaited_once()
+    h.spies.image_only.assert_not_called()  # the image is reused, not generated again
+    photos = [c for c in h.session.calls if type(c).__name__ == "SendPhoto"]
+    assert len(photos) == 1
+    sent = photos[0].photo.data
+    assert sent != original and Image.open(io.BytesIO(sent)).size == (256, 256)
+    ctx, stored_original = get_storage().get_last_card_with_original(AUTH)
+    assert stored_original == original  # the clean original is never replaced by the rendered card
+    assert (ctx.short_text, ctx.caption_html) == ("Fresh phrase", "<b>fresh</b>")  # type: ignore[union-attr]
+
+
+UNAUTHORIZED_REGEN_PRESS = pytest.mark.parametrize(
+    ("uid", "data"),
+    [(u, d) for u in (STRANGER, ADMIN) for d in ("regen_repeat", "regen_text", "regen_image", "regen_card_lang")],
+)
+
+
+@UNAUTHORIZED_REGEN_PRESS
+async def test_unauthorized_regeneration_never_renders_or_touches_the_stored_original(
+    h: Harness, monkeypatch: pytest.MonkeyPatch, uid: int, data: str
+) -> None:
+    render = AsyncMock(return_value=(b"never", True))
+    monkeypatch.setattr("handlers.main.render_card_image", render)
+    h.seed_card(uid, original=_png_bytes())
+    before = h.db()
+
+    await h.press(uid, data)
+
+    render.assert_not_called()
+    assert h.paid_calls() == []
+    assert h.db() == before  # context and original image rows are byte-identical
+    assert "SendPhoto" not in h.session.names()
+    assert_denied_callback(h)
 
 
 async def test_allowlisted_admin_keeps_admin_commands(make_harness) -> None:

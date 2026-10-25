@@ -28,17 +28,19 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)  # type: ignore[arg-type]
 
 
-def test_settings_default_image_provider_is_proxi(
+def test_settings_default_image_provider_is_openai(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("IMAGE_PROVIDER", raising=False)
     s = Settings(BOT_TOKEN="test-token", _env_file=None)  # type: ignore[call-arg]
-    assert s.IMAGE_PROVIDER == "proxi"
+    assert s.IMAGE_PROVIDER == "openai"
 
 
-def test_get_image_provider_default_proxi() -> None:
-    provider = get_image_provider(_settings())
-    assert isinstance(provider, ProxiImageProvider)
+def test_get_image_provider_default_is_openai() -> None:
+    provider = get_image_provider(
+        Settings(BOT_TOKEN="test-token", _env_file=None)  # type: ignore[call-arg]
+    )
+    assert isinstance(provider, OpenAIImageProvider)
 
 
 def test_get_image_provider_explicit_proxi() -> None:

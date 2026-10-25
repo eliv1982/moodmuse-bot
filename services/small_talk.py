@@ -85,7 +85,7 @@ def build_idle_small_talk_user_prompt(user_message: str, turn: int) -> str:
 
 
 def _small_talk_timeout(settings: Settings) -> float:
-    name = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    name = (settings.TEXT_PROVIDER or "openai").strip().lower()
     if name == "openai":
         return min(30.0, float(settings.OPENAI_TIMEOUT))
     return min(30.0, float(settings.YANDEX_TIMEOUT))

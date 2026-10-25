@@ -63,10 +63,10 @@ class Settings(BaseSettings):
     PROXI_API_KEY: str = ""
     PROXI_BASE_URL: str = "https://openai.api.proxyapi.ru"
 
-    # Text generation provider: yandex (default) or openai
-    TEXT_PROVIDER: str = "yandex"
+    # Text generation provider: openai (default) or legacy yandex
+    TEXT_PROVIDER: str = "openai"
 
-    # OpenAI (direct API) — used when TEXT_PROVIDER=openai
+    # OpenAI (direct API) — default for text, images and speech-to-text
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_TEXT_MODEL: str = "gpt-4o-mini"
@@ -81,17 +81,19 @@ class Settings(BaseSettings):
     YANDEX_TIMEOUT: float = 90.0
     YANDEX_PROMPT_REFINE_TIMEOUT: float = 45.0
 
-    # Image generation provider: proxi (default) or openai
-    IMAGE_PROVIDER: str = "proxi"
+    # Image generation provider: openai (default) or legacy proxi
+    IMAGE_PROVIDER: str = "openai"
 
-    # Image generation (ProxyAPI / legacy default)
+    # Image generation via ProxyAPI.ru (legacy route; quality is not sent)
     PROXI_IMAGE_TIMEOUT: float = 120.0
-    PROXI_IMAGE_MODEL: str = "gpt-image-1"
+    PROXI_IMAGE_MODEL: str = "gpt-image-2.5-flare"
 
-    # OpenAI direct images — used when IMAGE_PROVIDER=openai
-    OPENAI_IMAGE_MODEL: str = "gpt-image-1"
+    # OpenAI direct images — used when IMAGE_PROVIDER=openai (the former default gpt-image-1 is retired)
+    OPENAI_IMAGE_MODEL: str = "gpt-image-2.5-flare"
     OPENAI_IMAGE_SIZE: str = "1024x1024"
-    OPENAI_IMAGE_TIMEOUT: float = 120.0
+    # low | medium | high | auto; empty omits the parameter. Sent only to gpt-image* models.
+    OPENAI_IMAGE_QUALITY: str = "medium"
+    OPENAI_IMAGE_TIMEOUT: float = 180.0
 
     # Speech-to-text provider: openai (default) or legacy proxi/proxiapi (ProxyAPI Whisper)
     STT_PROVIDER: str = "openai"

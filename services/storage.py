@@ -42,6 +42,8 @@ class LastCardContext:
     recipient_address: str = ""
     sender_signature: str = ""
     occasion_details: str = ""
+    """Short phrase of the current card (plain text, empty for cards saved before embedded captions)."""
+    short_text: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +59,7 @@ class LastCardContext:
             "recipient_address": self.recipient_address,
             "sender_signature": self.sender_signature,
             "occasion_details": self.occasion_details,
+            "short_text": self.short_text,
         }
 
     @classmethod
@@ -75,6 +78,7 @@ class LastCardContext:
                 recipient_address=str(d.get("recipient_address", "")),
                 sender_signature=str(d.get("sender_signature", "")),
                 occasion_details=str(d.get("occasion_details", "")),
+                short_text=str(d.get("short_text", "")),
             )
         except (TypeError, ValueError):
             return None
@@ -132,6 +136,12 @@ class BotStorage:
                 conn.execute(
                     "ALTER TABLE user_prefs ADD COLUMN profile_preferences_json TEXT NOT NULL DEFAULT '{}'"
                 )
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+            try:
+                # Clean provider image of the last card; NULL for cards saved before embedded captions.
+                conn.execute("ALTER TABLE last_card ADD COLUMN original_image BLOB")
             except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
                     raise
@@ -243,16 +253,49 @@ class BotStorage:
             )
         return int(row["count"]) if row else 1
 
-    def save_last_card(self, user_id: int, ctx: LastCardContext) -> None:
+    def save_last_card(
+        self,
+        user_id: int,
+        ctx: LastCardContext,
+        original: Optional[bytes] = None,
+    ) -> None:
+        """
+        Store the user's single last card. The context and the clean original image share one row, so one
+        statement replaces both: a reader can never see one card's text next to another card's image.
+
+        ``original=None`` updates the context only and keeps the image already stored (text-only changes);
+        pass the bytes whenever the image itself is new.
+        """
         payload = json.dumps(ctx.to_dict(), ensure_ascii=False)
         with self._conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO last_card (user_id, payload) VALUES (?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload
-                """,
-                (user_id, payload),
-            )
+            if original is None:
+                conn.execute(
+                    """
+                    INSERT INTO last_card (user_id, payload) VALUES (?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload
+                    """,
+                    (user_id, payload),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO last_card (user_id, payload, original_image) VALUES (?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        payload = excluded.payload,
+                        original_image = excluded.original_image
+                    """,
+                    (user_id, payload, original),
+                )
+
+    @staticmethod
+    def _card_from_payload(raw: str) -> Optional[LastCardContext]:
+        try:
+            d = json.loads(raw)
+            if not isinstance(d, dict):
+                return None
+            return LastCardContext.from_dict(d)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def get_last_card(self, user_id: int) -> Optional[LastCardContext]:
         with self._conn() as conn:
@@ -262,13 +305,26 @@ class BotStorage:
             ).fetchone()
         if not row:
             return None
-        try:
-            d = json.loads(row["payload"])
-            if not isinstance(d, dict):
-                return None
-            return LastCardContext.from_dict(d)
-        except (json.JSONDecodeError, TypeError):
-            return None
+        return self._card_from_payload(row["payload"])
+
+    def get_last_card_with_original(
+        self,
+        user_id: int,
+    ) -> tuple[Optional[LastCardContext], Optional[bytes]]:
+        """
+        Last card context together with its clean original image, read in one statement so they always
+        belong to the same card. The image is None for cards saved before embedded captions.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT payload, original_image FROM last_card WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if not row:
+            return None, None
+        ctx = self._card_from_payload(row["payload"])
+        image = row["original_image"]
+        return ctx, (bytes(image) if ctx is not None and image else None)
 
     def kv_get(self, key: str, default: str = "") -> str:
         with self._conn() as conn:

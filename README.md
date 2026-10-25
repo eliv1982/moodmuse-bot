@@ -4,9 +4,9 @@
 
 > **Note:** This project was previously called **SpringPost** (repo name `spring-mood-bot`). Docker image/container/volume names may still use the `springpost` prefix until a dedicated deploy rename.
 
-**English:** Bilingual bot (Russian / English) that walks users through a short wizard and generates a **personalized card**: an AI image plus a caption tuned for tone and audience. **Images** use [ProxyAPI.ru](https://proxyapi.ru) (OpenAI-compatible API, default `gpt-image-1`). **Captions and image-prompt refinement** use **Yandex Cloud Foundation Models** (YandexGPT) by default, with an optional **OpenAI** text provider (`TEXT_PROVIDER=openai`). Voice input uses **OpenAI transcriptions** by default (`STT_PROVIDER=openai`) after the user picks **Custom wishes** (text or voice in the same step). **ffmpeg** is required to convert Telegram `.ogg` voice messages to WAV. **ProxyAPI Whisper** remains available as a legacy fallback via `STT_PROVIDER=proxi` (or `STT_PROVIDER=proxiapi`).
+**English:** Bilingual bot (Russian / English) that walks users through a short wizard and generates a **personalized card**: an AI image with a short phrase printed on it, plus an expanded caption tuned for tone and audience. **Images** use the direct **OpenAI Images API** by default (`IMAGE_PROVIDER=openai`, model `gpt-image-2.5-flare`, quality `medium`, 180 s timeout). **Captions and image-prompt refinement** use **OpenAI** by default (`TEXT_PROVIDER=openai`); one text request returns both the short phrase and the expanded caption. Voice input uses **OpenAI transcriptions** by default (`STT_PROVIDER=openai`) after the user picks **Custom wishes** (text or voice in the same step). **ffmpeg** is required to convert Telegram `.ogg` voice messages to WAV. The earlier **ProxyAPI.ru** (images, Whisper) and **Yandex Cloud** (text) routes remain available as legacy fallbacks via `IMAGE_PROVIDER=proxi`, `STT_PROVIDER=proxi` / `proxiapi` and `TEXT_PROVIDER=yandex`.
 
-**Русский:** Telegram-бот для персональных открыток и поздравлений без «кринжа»: картинка через ProxyAPI, текст и доработка промпта — YandexGPT (или OpenAI при настройке).
+**Русский:** Telegram-бот для персональных открыток и поздравлений без «кринжа»: картинка с короткой фразой на ней и расширенная подпись. По умолчанию всё идёт напрямую через OpenAI (картинки, текст, голос); ProxyAPI и YandexGPT остались как устаревшие маршруты.
 
 ## Features
 
@@ -18,7 +18,8 @@
 - Photo caption trimmed to **Telegram HTML limit** (1024 chars) with safe escaping
 - **English image prompt refinement** via LLM before image generation
 - **Anti-cringe** guidance in Russian caption prompts (natural tone, no awkward calques)
-- After each card: **repeat** (no extra API), **new caption**, **new image**, create another, change language
+- **Finished card** — the image carries a short phrase drawn on it (Pillow, bundled Cyrillic-capable font) and the expanded text goes in the Telegram caption; both come from one text request
+- After each card: **repeat** (no extra API), **new caption** (new phrase + caption on the same image, no image generation), **new image** (same phrase and caption on a fresh image), create another, change language
 - [Admin commands](#admin-commands): `/stats`, `/smalltalk_on`, `/smalltalk_off`, `/maintenance …`, `/dev_reset_me`
 - **JSON logs** with `user_id`, `event` and any other structured fields attached to the log call (handy with `docker logs`)
 
@@ -26,9 +27,9 @@
 
 - Python 3.11+
 - Telegram bot token ([@BotFather](https://t.me/BotFather))
-- **OpenAI** API key for voice input by default (`STT_PROVIDER=openai`); **ProxyAPI.ru** for images (and legacy voice STT via `STT_PROVIDER=proxi`)
-- **Yandex Cloud** (default text): folder ID + API key with Foundation Models access ([docs](https://yandex.cloud/en/docs/foundation-models/))
-- **OpenAI** (optional text): `OPENAI_API_KEY` when `TEXT_PROVIDER=openai`
+- **OpenAI** API key (`OPENAI_API_KEY`): images, text and voice input all use it by default
+- Optional legacy routes: **ProxyAPI.ru** key for `IMAGE_PROVIDER=proxi` / `STT_PROVIDER=proxi`; **Yandex Cloud** folder ID + API key with Foundation Models access for `TEXT_PROVIDER=yandex` ([docs](https://yandex.cloud/en/docs/foundation-models/))
+- Pillow (installed from `requirements.txt`) draws the short phrase on the card image with the bundled PT Serif Bold font (SIL OFL 1.1, see `assets/fonts/`)
 
 ## Local setup
 
@@ -41,7 +42,7 @@ python -m venv .venv
 
 pip install -r requirements.txt
 copy .env.example .env          # Windows: copy; Linux: cp
-# Set BOT_TOKEN, ALLOWED_USER_IDS, PROXI_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID; optional ADMIN_USER_IDS, TEXT_PROVIDER
+# Set BOT_TOKEN, ALLOWED_USER_IDS, OPENAI_API_KEY; optional ADMIN_USER_IDS
 
 python bot.py
 ```
@@ -64,16 +65,16 @@ docker compose up -d --build
 
 SQLite and rate-limit data live in Docker volume **`springpost_data`** (legacy name) → `/app/data` in the container. The running container is named **`springpost`**; image tag **`springpost:latest`**. See [DEPLOY.md](DEPLOY.md) before renaming these in production.
 
-**Important:** `YANDEX_API_KEY` and `YANDEX_FOLDER_ID` must be in **`.env` next to `docker-compose.yml`**, and the file must be listed as `env_file: .env` for the bot service. After editing `.env`, recreate the container:
+**Important:** `OPENAI_API_KEY` (and `YANDEX_API_KEY` / `YANDEX_FOLDER_ID` or `PROXI_API_KEY` if you select a legacy provider) must be in **`.env` next to `docker-compose.yml`**, and the file must be listed as `env_file: .env` for the bot service. After editing `.env`, recreate the container:
 
 ```bash
 docker compose up -d --force-recreate
 ```
 
-Verify merged config (should list both variables under `bot.environment`):
+Verify merged config (should list the variables under `bot.environment`):
 
 ```bash
-docker compose config | grep YANDEX_
+docker compose config | grep OPENAI_
 ```
 
 VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
@@ -83,12 +84,18 @@ VPS-oriented steps: see **[DEPLOY.md](DEPLOY.md)**.
 | Variable | Description |
 |----------|-------------|
 | `BOT_TOKEN` | Telegram bot token |
-| `TEXT_PROVIDER` | `yandex` (default) or `openai` for captions / prompt refine |
-| `OPENAI_API_KEY` | OpenAI API key when `TEXT_PROVIDER=openai` |
+| `TEXT_PROVIDER` | `openai` (default) or legacy `yandex` for captions / prompt refine |
+| `IMAGE_PROVIDER` | `openai` (default, direct Images API) or legacy `proxi` (ProxyAPI.ru) |
+| `OPENAI_API_KEY` | OpenAI API key (text, images and voice by default) |
 | `OPENAI_BASE_URL` | Default `https://api.openai.com/v1` |
 | `OPENAI_TEXT_MODEL` | Default `gpt-4o-mini` |
-| `PROXI_API_KEY` | ProxyAPI.ru key |
+| `OPENAI_IMAGE_MODEL` | Default `gpt-image-2.5-flare` |
+| `OPENAI_IMAGE_QUALITY` | `low` / `medium` / `high` / `auto`; default `medium`. Empty omits it; sent only to `gpt-image*` models and never on the ProxyAPI route |
+| `OPENAI_IMAGE_SIZE` | Default `1024x1024` |
+| `OPENAI_IMAGE_TIMEOUT` | Seconds; default `180` |
+| `PROXI_API_KEY` | ProxyAPI.ru key (legacy image / Whisper route) |
 | `PROXI_BASE_URL` | Default `https://openai.api.proxyapi.ru` |
+| `PROXI_IMAGE_MODEL` | Default `gpt-image-2.5-flare` (legacy route; not verified against ProxyAPI.ru) |
 | `STT_PROVIDER` | `openai` (default); legacy `proxi` / `proxiapi` for ProxyAPI Whisper |
 | `OPENAI_STT_MODEL` | Default `gpt-4o-mini-transcribe` |
 | `FFMPEG_BINARY` | Path to `ffmpeg` for Telegram voice `.ogg` → WAV (default `ffmpeg`) |
@@ -130,6 +137,17 @@ ALLOWED_USER_IDS=<owner_telegram_id>,<second_user_telegram_id>   # replace with 
 
 Free-text answers (typed or voice) are echoed back with an “Is that correct?” confirmation. There is no separate confirmation screen after the last step: the bot posts a **summary of your choices**, which doubles as the progress status, and generation (prompt refine + image + caption) starts immediately. On success the summary is replaced by the finished card; on a provider error the user sees a short generic message (details go to the server log only) and returns to the signature step — answering it again retries generation.
 
+## Finished card
+
+A card is **image + short phrase drawn on the image + expanded caption**.
+
+- One text request returns JSON with a `short` phrase (printed on the image) and the `full` caption (the Telegram caption, written as before). If the model does not return that JSON, the whole reply becomes the caption and the card goes out without a phrase.
+- The phrase is drawn by [`services/card_render.py`](services/card_render.py) with Pillow on a worker thread: wrapped, centred near the bottom, margins kept, shrunk to fit (an overflowing phrase ends with “…”), over a dark gradient so it stays readable on bright images. It uses the bundled **PT Serif Bold** (SIL OFL 1.1, Cyrillic + Latin; see `assets/fonts/`).
+- The **clean provider image is stored** (SQLite, `last_card.original_image`, latest card per user only) alongside the card context in the same row. Text-only actions redraw on that clean image, so nothing is drawn on top of earlier text and no image is generated again.
+- If drawing fails for any reason, the clean image and the expanded caption are sent.
+- Cards saved before this feature have no clean original: **new caption** and **language switch** change only the caption, as before; **new image** works and starts keeping an original, after which the next text change embeds a phrase.
+- A user's card operations (new card, new caption, new image, language switch) run one at a time; a second one gets a short “still being prepared” notice instead of racing the first. **Repeat** only re-sends the delivered card and is never blocked.
+
 ## Admin commands
 
 Available only to Telegram user IDs listed in `ADMIN_USER_IDS` **that are also in `ALLOWED_USER_IDS`** (see [Private access](#private-access)). Admins are also exempt from the daily generation limit and from maintenance mode. These commands are not shown in the Telegram command menu (which lists `/start`, `/cancel`, `/lang`, `/help`).
@@ -158,11 +176,13 @@ moodmuse-bot/
 │   ├── profile.py            # onboarding and profile settings
 │   └── admin.py              # admin commands
 ├── services/
-│   ├── card_generation.py    # prompt refine + image + caption pipeline
+│   ├── card_generation.py    # prompt refine + image + short phrase / caption pipeline
+│   ├── card_render.py        # draws the short phrase on the card image (Pillow)
 │   ├── providers/            # text / image / speech-to-text providers and factories
 │   ├── storage.py            # SQLite: profiles, daily limits, last card
 │   ├── small_talk.py         # idle-chat and returning-user greetings
 │   └── ...                   # ProxyAPI / Yandex clients, speech-to-text, audio prep
+├── assets/fonts/             # bundled PT Serif Bold + OFL license
 ├── utils/                    # RU/EN copy (i18n), prompts, wizard and profile UI helpers, logging
 └── tests/                    # offline pytest suite (mocked providers, fake config)
 ```

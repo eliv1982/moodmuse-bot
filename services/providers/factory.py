@@ -18,9 +18,9 @@ class UnknownTextProviderError(ValueError):
 def get_text_provider(settings: Settings) -> TextProvider:
     """
     Return text provider from settings.
-    Default: yandex (backward compatible).
+    Default: openai (direct API); yandex remains selectable as a legacy route.
     """
-    name = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    name = (settings.TEXT_PROVIDER or "openai").strip().lower()
     if name == "yandex":
         return YandexTextProvider(settings)
     if name == "openai":
@@ -32,7 +32,7 @@ def get_text_provider(settings: Settings) -> TextProvider:
 
 def text_provider_configured(settings: Settings) -> bool:
     """True if the active text provider has required credentials."""
-    name = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    name = (settings.TEXT_PROVIDER or "openai").strip().lower()
     if name == "openai":
         return bool((settings.OPENAI_API_KEY or "").strip())
     return bool(
@@ -43,7 +43,7 @@ def text_provider_configured(settings: Settings) -> bool:
 
 def text_provider_preflight_message_key(settings: Settings) -> str:
     """i18n key shown when text_provider_configured is False."""
-    name = (settings.TEXT_PROVIDER or "yandex").strip().lower()
+    name = (settings.TEXT_PROVIDER or "openai").strip().lower()
     if name == "yandex":
         return "yandex_env_missing"
     return "text_provider_not_configured"

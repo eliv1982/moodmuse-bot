@@ -97,13 +97,16 @@ nano .env
 # Telegram (токен от @BotFather)
 BOT_TOKEN=ваш_токен_бота
 
-# ProxyAPI.ru (ключ из https://console.proxyapi.ru)
-PROXI_API_KEY=ваш_ключ
-PROXI_BASE_URL=https://openai.api.proxyapi.ru
+# OpenAI напрямую (картинки, текст, голос) — провайдеры по умолчанию, отдельных настроек не нужно.
+# Модель картинок по умолчанию gpt-image-2.5-flare, качество medium, таймаут 180 с
+# (OPENAI_IMAGE_MODEL / OPENAI_IMAGE_QUALITY / OPENAI_IMAGE_TIMEOUT — только если нужно переопределить).
+OPENAI_API_KEY=ваш_openai_ключ
 
-# Yandex Cloud Foundation Models (текст + улучшение промпта картинки)
-YANDEX_API_KEY=ваш_api_ключ
-YANDEX_FOLDER_ID=b1gxxxxxxxxxxxxxxxxxxxx
+# Устаревшие маршруты (нужны только при IMAGE_PROVIDER=proxi / TEXT_PROVIDER=yandex):
+# PROXI_API_KEY=ваш_ключ
+# PROXI_BASE_URL=https://openai.api.proxyapi.ru
+# YANDEX_API_KEY=ваш_api_ключ
+# YANDEX_FOLDER_ID=b1gxxxxxxxxxxxxxxxxxxxx
 
 # Кто может пользоваться ботом (Telegram user id через запятую). ОБЯЗАТЕЛЬНО:
 # пусто или с ошибкой — бот не отвечает никому, кроме короткого уведомления «доступ по приглашению».
@@ -258,6 +261,8 @@ docker compose up -d --force-recreate
 ---
 
 ## 10. Проверка, что Yandex-переменные попали в контейнер
+
+Нужна только для устаревшего маршрута `TEXT_PROVIDER=yandex`; с настройками по умолчанию (OpenAI) вместо этого проверьте `OPENAI_API_KEY` тем же способом.
 
 После заполнения `.env` в **том же каталоге**, что и `docker-compose.yml`:
 

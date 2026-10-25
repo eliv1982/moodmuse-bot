@@ -305,6 +305,37 @@ def build_text_user_prompt(holiday: Optional[str], lang: Lang) -> str:
     )
 
 
+def build_card_texts_user_prompt(holiday: Optional[str], lang: Lang) -> str:
+    """
+    User prompt for one request that returns both card texts as JSON: ``short`` (printed on the
+    image) and ``full`` (the Telegram caption, written as the system prompt describes).
+    """
+    if lang == "en":
+        holiday_part = f"Occasion: {holiday}." if holiday else "Occasion: general greeting."
+        return (
+            f"{holiday_part} Return ONLY a JSON object with exactly two string fields, "
+            "no markdown and no code fences: "
+            '{"short": "...", "full": "..."}. '
+            '"full" is the greeting caption written exactly as instructed above, '
+            "with no title or meta. "
+            '"short" is a punchy line of at most 8 words (under 60 characters) to be printed on the '
+            "card image: the essence of the greeting, with no quotation marks, no emoji, "
+            "no names and no signature. "
+            "Write both fields only in English."
+        )
+    holiday_part = f"Праздник/повод: {holiday}." if holiday else "Повод: общее поздравление."
+    return (
+        f"{holiday_part} Верни ТОЛЬКО JSON-объект ровно с двумя строковыми полями, "
+        "без markdown и без блоков кода: "
+        '{"short": "...", "full": "..."}. '
+        'Поле "full" — текст поздравления, как описано в инструкциях выше, '
+        "без заголовка, без «С уважением», без пояснений и вопросов к адресату. "
+        'Поле "short" — короткая фраза до 8 слов (меньше 60 символов), которую напечатают на '
+        "картинке открытки: суть поздравления, без кавычек, без эмодзи, без имён и подписи. "
+        "Оба поля — только на русском."
+    )
+
+
 def image_variation_suffix() -> str:
     """Append for 'new image' regen to encourage diversity."""
     return "alternative composition, fresh details, varied layout, same theme and mood"

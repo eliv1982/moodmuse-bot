@@ -47,16 +47,21 @@ class OpenAIImageProvider:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
+        payload: dict[str, object] = {
             "model": model,
             "prompt": prompt,
             "size": size,
             "n": 1,
         }
+        # quality is a gpt-image* parameter; an explicit override to another model must not break on it.
+        quality = (self._settings.OPENAI_IMAGE_QUALITY or "").strip()
+        if quality and "gpt-image" in model.lower():
+            payload["quality"] = quality
         url = self._images_generations_url()
         logger.info(
-            "OpenAI images: generating (model=%s, prompt_len=%d)",
+            "OpenAI images: generating (model=%s, quality=%s, prompt_len=%d)",
             model,
+            payload.get("quality", "-"),
             len(prompt),
         )
 

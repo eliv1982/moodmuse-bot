@@ -1,5 +1,5 @@
 """
-ProxyAPI.ru client for image generation (OpenAI-compatible: gpt-image-1).
+ProxyAPI.ru client for image generation (OpenAI-compatible; legacy route).
 Документация: https://proxyapi.ru/docs/openai-image-generation
 """
 import base64
@@ -11,8 +11,8 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# Модель GPT-Image 1 в ProxyAPI.ru
-DEFAULT_MODEL = "gpt-image-1"
+# Совпадает с PROXI_IMAGE_MODEL по умолчанию; gpt-image-1 выведена из эксплуатации
+DEFAULT_MODEL = "gpt-image-2.5-flare"
 
 
 class ProxiAPIError(Exception):

@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 def _log_startup_provider_warnings(settings: Settings) -> None:
     """Provider-aware configuration warnings (no secrets in logs)."""
-    text_provider = (settings.TEXT_PROVIDER or "yandex").strip().lower()
-    image_provider = (settings.IMAGE_PROVIDER or "proxi").strip().lower()
+    text_provider = (settings.TEXT_PROVIDER or "openai").strip().lower()
+    image_provider = (settings.IMAGE_PROVIDER or "openai").strip().lower()
     openai_key = (settings.OPENAI_API_KEY or "").strip()
     yandex_ok = bool((settings.YANDEX_API_KEY or "").strip() and (settings.YANDEX_FOLDER_ID or "").strip())
     proxi_key = (settings.PROXI_API_KEY or "").strip()

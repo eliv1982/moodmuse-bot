@@ -18,6 +18,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 from config import Settings, get_settings
 from handlers.states import CardStates, ProfileStates
 from services.card_generation import run_card_generation, run_image_only, run_text_only
+from services.card_render import render_card_image
 from services.proxi import ProxiAPIError
 from services.providers.factory import (
     text_provider_configured,
@@ -46,6 +47,7 @@ from utils.idle_small_talk_session import (
     should_use_idle_ai,
 )
 from utils.idle_small_talk_session import IDLE_FALLBACK_MESSAGE_KEYS
+from utils.card_lock import card_lock
 from services.providers.image_factory import (
     image_provider_configured,
     image_provider_preflight_message_key,
@@ -1155,141 +1157,154 @@ async def _run_card_generation_from_wizard(
             await anchor.answer(alert)
         return
 
-    await state.set_state(CardStates.generating)
-    ui_lang = _ui_lang_for_user(uid)
-    logger.info("generation_start", extra={"user_id": uid, "event": "generation_start"})
+    lock = card_lock(uid)
+    if lock.locked():
+        # Another card operation of this user is still running; it would overwrite this card.
+        busy = t("card_busy", lang)
+        if cq is not None:
+            await cq.answer(busy, show_alert=True)
+        else:
+            await anchor.answer(busy)
+        return
 
-    data: dict[str, Any] = (await state.get_data()) or {}
-    occasion = str(data.get("occasion", ""))
-    image_description = str(data.get("image_description", ""))
-    holiday = str(data.get("holiday", ""))
-    image_style = str(data.get("image_style", "style_realistic"))
-    text_style = str(data.get("text_style", "text_warm"))
-    recipient_address = data.get("recipient_address")
-    sender_signature = data.get("sender_signature")
-    occasion_details = data.get("occasion_details")
-    ra = str(recipient_address).strip() if recipient_address else None
-    ss = str(sender_signature).strip() if sender_signature else None
-    od = str(occasion_details).strip() if occasion_details else None
-    prefs = get_storage().get_profile_preferences(uid)
-    log_generation_prompt_context(
-        user_id=uid,
-        holiday=holiday,
-        occasion_details=od or "",
-        recipient_address=ra or "",
-        sender_signature_present=bool(ss),
-        ui_lang=ui_lang,
-        card_lang=lang,
-        image_style=image_style,
-        text_style=text_style,
-        tone=prefs.text_tone,
-        length=prefs.text_length,
-        address_style=prefs.address_style,
-    )
+    async with lock:
+        await state.set_state(CardStates.generating)
+        ui_lang = _ui_lang_for_user(uid)
+        logger.info("generation_start", extra={"user_id": uid, "event": "generation_start"})
 
-    summary = build_generation_summary(
-        lang=lang,
-        occasion=occasion,
-        image_description=image_description,
-        holiday=holiday,
-        image_style=image_style,
-        text_style=text_style,
-        occasion_details=od,
-        recipient_address=ra,
-        sender_signature=ss,
-    )
-    status_msg = await anchor.answer(summary, parse_mode=ParseMode.HTML)
-    profile_prefs = get_storage().get_profile_preferences(uid)
+        data: dict[str, Any] = (await state.get_data()) or {}
+        occasion = str(data.get("occasion", ""))
+        image_description = str(data.get("image_description", ""))
+        holiday = str(data.get("holiday", ""))
+        image_style = str(data.get("image_style", "style_realistic"))
+        text_style = str(data.get("text_style", "text_warm"))
+        recipient_address = data.get("recipient_address")
+        sender_signature = data.get("sender_signature")
+        occasion_details = data.get("occasion_details")
+        ra = str(recipient_address).strip() if recipient_address else None
+        ss = str(sender_signature).strip() if sender_signature else None
+        od = str(occasion_details).strip() if occasion_details else None
+        prefs = get_storage().get_profile_preferences(uid)
+        log_generation_prompt_context(
+            user_id=uid,
+            holiday=holiday,
+            occasion_details=od or "",
+            recipient_address=ra or "",
+            sender_signature_present=bool(ss),
+            ui_lang=ui_lang,
+            card_lang=lang,
+            image_style=image_style,
+            text_style=text_style,
+            tone=prefs.text_tone,
+            length=prefs.text_length,
+            address_style=prefs.address_style,
+        )
 
-    try:
-        image_bytes, caption_html, final_prompt = await run_card_generation(
-            settings,
+        summary = build_generation_summary(
+            lang=lang,
+            occasion=occasion,
+            image_description=image_description,
+            holiday=holiday,
+            image_style=image_style,
+            text_style=text_style,
+            occasion_details=od,
+            recipient_address=ra,
+            sender_signature=ss,
+        )
+        status_msg = await anchor.answer(summary, parse_mode=ParseMode.HTML)
+        profile_prefs = get_storage().get_profile_preferences(uid)
+
+        try:
+            card = await run_card_generation(
+                settings,
+                occasion=occasion,
+                image_description=image_description,
+                holiday=holiday,
+                image_style=image_style,
+                text_style=text_style,
+                lang=lang,
+                refine_prompt=True,
+                image_prompt_override=None,
+                profile_prefs=profile_prefs,
+                recipient_address=ra,
+                sender_signature=ss,
+                occasion_details=od,
+            )
+        except (ProxiAPIError, OpenAIImageError) as e:
+            logger.exception("Image provider failed: %s", e, extra={"user_id": uid, "event": "error"})
+            await status_msg.edit_text(t("err_image", lang))
+            await state.set_state(CardStates.signature_toggle)
+            await anchor.answer(
+                t("step6_signature_toggle", lang),
+                reply_markup=signature_toggle_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except (YandexGPTError, OpenAITextError) as e:
+            logger.exception("Text provider failed: %s", e, extra={"user_id": uid, "event": "error"})
+            await status_msg.edit_text(t("err_text", lang))
+            await state.set_state(CardStates.signature_toggle)
+            await anchor.answer(
+                t("step6_signature_toggle", lang),
+                reply_markup=signature_toggle_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except asyncio.TimeoutError:
+            logger.warning("timeout", extra={"user_id": uid, "event": "error"})
+            await status_msg.edit_text(t("err_timeout", lang))
+            await state.set_state(CardStates.signature_toggle)
+            await anchor.answer(
+                t("step6_signature_toggle", lang),
+                reply_markup=signature_toggle_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except Exception as e:
+            logger.exception("generation failed: %s", e, extra={"user_id": uid, "event": "error"})
+            await status_msg.edit_text(t("err_generic", lang))
+            await state.set_state(CardStates.signature_toggle)
+            await anchor.answer(
+                t("step6_signature_toggle", lang),
+                reply_markup=signature_toggle_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        # The clean image is kept (saved below) for later text changes; the phrase is drawn on a copy.
+        sent = await _answer_card(
+            anchor,
+            original=card.image_bytes,
+            short_text=card.texts.short_text,
+            caption_html=card.texts.caption_html,
+            reply_markup=after_card_keyboard(ui_lang, lang),
+        )
+        await _reassert_main_menu_keyboard(anchor, ui_lang)
+        fid = sent.photo[-1].file_id if sent.photo else ""
+        ctx = LastCardContext(
             occasion=occasion,
             image_description=image_description,
             holiday=holiday,
             image_style=image_style,
             text_style=text_style,
             lang=lang,
-            refine_prompt=True,
-            image_prompt_override=None,
-            profile_prefs=profile_prefs,
-            recipient_address=ra,
-            sender_signature=ss,
-            occasion_details=od,
+            image_prompt_en=card.image_prompt_en,
+            photo_file_id=fid,
+            caption_html=card.texts.caption_html,
+            recipient_address=ra or "",
+            sender_signature=ss or "",
+            occasion_details=od or "",
+            short_text=card.texts.short_text,
         )
-    except (ProxiAPIError, OpenAIImageError) as e:
-        logger.exception("Image provider failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_image", lang))
-        await state.set_state(CardStates.signature_toggle)
-        await anchor.answer(
-            t("step6_signature_toggle", lang),
-            reply_markup=signature_toggle_keyboard(lang),
-            parse_mode=ParseMode.HTML,
-        )
-        return
-    except (YandexGPTError, OpenAITextError) as e:
-        logger.exception("Text provider failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_text", lang))
-        await state.set_state(CardStates.signature_toggle)
-        await anchor.answer(
-            t("step6_signature_toggle", lang),
-            reply_markup=signature_toggle_keyboard(lang),
-            parse_mode=ParseMode.HTML,
-        )
-        return
-    except asyncio.TimeoutError:
-        logger.warning("timeout", extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_timeout", lang))
-        await state.set_state(CardStates.signature_toggle)
-        await anchor.answer(
-            t("step6_signature_toggle", lang),
-            reply_markup=signature_toggle_keyboard(lang),
-            parse_mode=ParseMode.HTML,
-        )
-        return
-    except Exception as e:
-        logger.exception("generation failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await status_msg.edit_text(t("err_generic", lang))
-        await state.set_state(CardStates.signature_toggle)
-        await anchor.answer(
-            t("step6_signature_toggle", lang),
-            reply_markup=signature_toggle_keyboard(lang),
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    photo = BufferedInputFile(image_bytes, filename="card.png")
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
-    sent = await anchor.answer_photo(
-        photo=photo,
-        caption=caption_html,
-        parse_mode=ParseMode.HTML,
-        reply_markup=after_card_keyboard(ui_lang, lang),
-    )
-    await _reassert_main_menu_keyboard(anchor, ui_lang)
-    fid = sent.photo[-1].file_id if sent.photo else ""
-    ctx = LastCardContext(
-        occasion=occasion,
-        image_description=image_description,
-        holiday=holiday,
-        image_style=image_style,
-        text_style=text_style,
-        lang=lang,
-        image_prompt_en=final_prompt,
-        photo_file_id=fid,
-        caption_html=caption_html,
-        recipient_address=ra or "",
-        sender_signature=ss or "",
-        occasion_details=od or "",
-    )
-    get_storage().save_last_card(uid, ctx)
-    if should_increment_daily_count(uid, settings):
-        get_storage().increment_generation(uid)
-    await state.clear()
-    logger.info("generation_ok", extra={"user_id": uid, "event": "generation_ok"})
+        get_storage().save_last_card(uid, ctx, original=card.image_bytes)
+        if should_increment_daily_count(uid, settings):
+            get_storage().increment_generation(uid)
+        await state.clear()
+        logger.info("generation_ok", extra={"user_id": uid, "event": "generation_ok"})
 
 
 def _image_idea_inline_keyboard(lang: Lang, settings: Settings) -> InlineKeyboardMarkup:
@@ -2167,6 +2182,27 @@ async def on_sender_signature_other(message: Message, state: FSMContext) -> None
 # ----- Regen -----
 
 
+async def _answer_card(
+    anchor: Message,
+    *,
+    original: bytes,
+    short_text: str,
+    caption_html: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> Message:
+    """
+    Send a card: the short phrase drawn on the clean ``original``. If drawing fails or there is no
+    phrase, the clean image goes out as-is; the expanded caption is sent either way.
+    """
+    image, _ = await render_card_image(original, short_text)
+    return await anchor.answer_photo(
+        photo=BufferedInputFile(image, filename="card.png"),
+        caption=caption_html,
+        parse_mode=ParseMode.HTML,
+        reply_markup=reply_markup,
+    )
+
+
 def _photo_file_fallback(cq: CallbackQuery, ctx: LastCardContext) -> Optional[str]:
     if ctx.photo_file_id:
         return ctx.photo_file_id
@@ -2201,56 +2237,73 @@ async def regen_text(cq: CallbackQuery) -> None:
     if not cq.from_user or not cq.message:
         return
     uid = cq.from_user.id
-    settings = get_settings()
-    ctx = get_storage().get_last_card(uid)
     ui_lang = _ui_lang_for_user(uid)
-    card_lang = coalesce_lang(ctx.lang if ctx else None)
-    if not ctx:
-        await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+    lock = card_lock(uid)
+    if lock.locked():
+        await cq.answer(t("card_busy", ui_lang), show_alert=True)
         return
-    if not can_consume_generation(uid, settings):
-        await cq.answer(t("rate_limited", ui_lang), show_alert=True)
-        return
-    if not text_provider_configured(settings):
-        await cq.answer(
-            t(text_provider_preflight_message_key(settings), ui_lang),
-            show_alert=True,
-        )
-        return
-    photo_id = _photo_file_fallback(cq, ctx)
-    if not photo_id:
-        await cq.answer("No image reference", show_alert=True)
-        return
-    await cq.answer(t("generating", ui_lang))
-    try:
-        cap = await run_text_only(
-            settings,
-            occasion=ctx.occasion,
-            holiday=ctx.holiday,
-            text_style=ctx.text_style,
-            lang=card_lang,
-            profile_prefs=get_storage().get_profile_preferences(uid),
-            recipient_address=ctx.recipient_address or None,
-            sender_signature=ctx.sender_signature or None,
-            occasion_details=ctx.occasion_details or None,
-        )
-    except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
-        logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await cq.message.answer(t("err_text", ui_lang))
-        return
-    sent = await cq.message.answer_photo(
-        photo=photo_id,
-        caption=cap,
-        parse_mode=ParseMode.HTML,
-        reply_markup=after_card_keyboard(ui_lang, card_lang),
-    )
-    ctx.caption_html = cap
-    if sent.photo:
-        ctx.photo_file_id = sent.photo[-1].file_id
-    get_storage().save_last_card(uid, ctx)
-    if should_increment_daily_count(uid, settings):
-        get_storage().increment_generation(uid)
-    logger.info("regen_text_ok", extra={"user_id": uid, "event": "regen_text"})
+    async with lock:
+        settings = get_settings()
+        ctx, original = get_storage().get_last_card_with_original(uid)
+        card_lang = coalesce_lang(ctx.lang if ctx else None)
+        if not ctx:
+            await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+            return
+        if not can_consume_generation(uid, settings):
+            await cq.answer(t("rate_limited", ui_lang), show_alert=True)
+            return
+        if not text_provider_configured(settings):
+            await cq.answer(
+                t(text_provider_preflight_message_key(settings), ui_lang),
+                show_alert=True,
+            )
+            return
+        photo_id = _photo_file_fallback(cq, ctx)
+        if original is None and not photo_id:
+            await cq.answer("No image reference", show_alert=True)
+            return
+        await cq.answer(t("generating", ui_lang))
+        try:
+            texts = await run_text_only(
+                settings,
+                occasion=ctx.occasion,
+                holiday=ctx.holiday,
+                text_style=ctx.text_style,
+                lang=card_lang,
+                profile_prefs=get_storage().get_profile_preferences(uid),
+                recipient_address=ctx.recipient_address or None,
+                sender_signature=ctx.sender_signature or None,
+                occasion_details=ctx.occasion_details or None,
+            )
+        except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
+            logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
+            await cq.message.answer(t("err_text", ui_lang))
+            return
+        if original is not None:
+            # Same clean image, new phrase drawn on it: no image generation.
+            sent = await _answer_card(
+                cq.message,
+                original=original,
+                short_text=texts.short_text,
+                caption_html=texts.caption_html,
+                reply_markup=after_card_keyboard(ui_lang, card_lang),
+            )
+            ctx.short_text = texts.short_text
+        else:
+            # Saved before embedded captions: no clean original, so only the caption changes.
+            sent = await cq.message.answer_photo(
+                photo=photo_id,
+                caption=texts.caption_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=after_card_keyboard(ui_lang, card_lang),
+            )
+        ctx.caption_html = texts.caption_html
+        if sent.photo:
+            ctx.photo_file_id = sent.photo[-1].file_id
+        get_storage().save_last_card(uid, ctx)
+        if should_increment_daily_count(uid, settings):
+            get_storage().increment_generation(uid)
+        logger.info("regen_text_ok", extra={"user_id": uid, "event": "regen_text"})
 
 
 @router.callback_query(F.data == "regen_image")
@@ -2258,52 +2311,57 @@ async def regen_image(cq: CallbackQuery) -> None:
     if not cq.from_user or not cq.message:
         return
     uid = cq.from_user.id
-    settings = get_settings()
-    ctx = get_storage().get_last_card(uid)
     ui_lang = _ui_lang_for_user(uid)
-    card_lang = coalesce_lang(ctx.lang if ctx else None)
-    if not ctx:
-        await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+    lock = card_lock(uid)
+    if lock.locked():
+        await cq.answer(t("card_busy", ui_lang), show_alert=True)
         return
-    if not can_consume_generation(uid, settings):
-        await cq.answer(t("rate_limited", ui_lang), show_alert=True)
-        return
-    if not image_provider_configured(settings):
-        await cq.answer(
-            t(image_provider_preflight_message_key(settings), ui_lang),
-            show_alert=True,
+    async with lock:
+        settings = get_settings()
+        ctx = get_storage().get_last_card(uid)
+        card_lang = coalesce_lang(ctx.lang if ctx else None)
+        if not ctx:
+            await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+            return
+        if not can_consume_generation(uid, settings):
+            await cq.answer(t("rate_limited", ui_lang), show_alert=True)
+            return
+        if not image_provider_configured(settings):
+            await cq.answer(
+                t(image_provider_preflight_message_key(settings), ui_lang),
+                show_alert=True,
+            )
+            return
+        base = (ctx.image_prompt_en or "").strip()
+        if not base:
+            await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+            return
+        new_prompt = f"{base}, {image_variation_suffix()}"
+        await cq.answer(t("generating", ui_lang))
+        try:
+            image_bytes, used = await run_image_only(settings, new_prompt or base)
+        except (ProxiAPIError, OpenAIImageError) as e:
+            logger.warning("regen_image failed: %s", e, extra={"user_id": uid, "event": "error"})
+            await cq.message.answer(t("err_image", ui_lang))
+            return
+        except asyncio.TimeoutError:
+            await cq.message.answer(t("err_timeout", ui_lang))
+            return
+        # The card's current phrase goes onto the new image; the new clean image replaces the old original.
+        sent = await _answer_card(
+            cq.message,
+            original=image_bytes,
+            short_text=ctx.short_text,
+            caption_html=ctx.caption_html or "",
+            reply_markup=after_card_keyboard(ui_lang, card_lang),
         )
-        return
-    base = (ctx.image_prompt_en or "").strip()
-    if not base:
-        await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
-        return
-    new_prompt = f"{base}, {image_variation_suffix()}"
-    await cq.answer(t("generating", ui_lang))
-    try:
-        image_bytes, used = await run_image_only(settings, new_prompt or base)
-    except (ProxiAPIError, OpenAIImageError) as e:
-        logger.warning("regen_image failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await cq.message.answer(t("err_image", ui_lang))
-        return
-    except asyncio.TimeoutError:
-        await cq.message.answer(t("err_timeout", ui_lang))
-        return
-    photo = BufferedInputFile(image_bytes, filename="card.png")
-    cap = ctx.caption_html or ""
-    sent = await cq.message.answer_photo(
-        photo=photo,
-        caption=cap,
-        parse_mode=ParseMode.HTML,
-        reply_markup=after_card_keyboard(ui_lang, card_lang),
-    )
-    ctx.image_prompt_en = used
-    if sent.photo:
-        ctx.photo_file_id = sent.photo[-1].file_id
-    get_storage().save_last_card(uid, ctx)
-    if should_increment_daily_count(uid, settings):
-        get_storage().increment_generation(uid)
-    logger.info("regen_image_ok", extra={"user_id": uid, "event": "regen_image"})
+        ctx.image_prompt_en = used
+        if sent.photo:
+            ctx.photo_file_id = sent.photo[-1].file_id
+        get_storage().save_last_card(uid, ctx, original=image_bytes)
+        if should_increment_daily_count(uid, settings):
+            get_storage().increment_generation(uid)
+        logger.info("regen_image_ok", extra={"user_id": uid, "event": "regen_image"})
 
 
 # ----- Card caption language toggle (not UI language) -----
@@ -2314,81 +2372,100 @@ async def regen_card_lang(cq: CallbackQuery) -> None:
     if not cq.from_user or not cq.message:
         return
     uid = cq.from_user.id
-    settings = get_settings()
-    ctx = get_storage().get_last_card(uid)
     ui_lang = _ui_lang_for_user(uid)
-    if not ctx:
-        await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+    lock = card_lock(uid)
+    if lock.locked():
+        await cq.answer(t("card_busy", ui_lang), show_alert=True)
         return
-    if not can_consume_generation(uid, settings):
-        await cq.answer(t("rate_limited", ui_lang), show_alert=True)
-        return
-    if not text_provider_configured(settings):
-        await cq.answer(
-            t(text_provider_preflight_message_key(settings), ui_lang),
-            show_alert=True,
+    async with lock:
+        settings = get_settings()
+        ctx, original = get_storage().get_last_card_with_original(uid)
+        if not ctx:
+            await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+            return
+        if not can_consume_generation(uid, settings):
+            await cq.answer(t("rate_limited", ui_lang), show_alert=True)
+            return
+        if not text_provider_configured(settings):
+            await cq.answer(
+                t(text_provider_preflight_message_key(settings), ui_lang),
+                show_alert=True,
+            )
+            return
+        photo_id = _photo_file_fallback(cq, ctx)
+        if original is None and not photo_id:
+            await cq.answer("No image reference", show_alert=True)
+            return
+        current = coalesce_lang(ctx.lang)
+        new_lang: Lang = "en" if current == "ru" else "ru"
+        profile_before = coalesce_lang(get_storage().get_user_lang(uid))
+        log_card_lang_toggle(
+            user_id=uid,
+            ui_lang=ui_lang,
+            previous_card_lang=current,
+            target_card_lang=new_lang,
+            profile_lang_before=profile_before,
+            profile_lang_after=profile_before,
+            image_reused=True,
+            run_text_only_called=True,
         )
-        return
-    photo_id = _photo_file_fallback(cq, ctx)
-    if not photo_id:
-        await cq.answer("No image reference", show_alert=True)
-        return
-    current = coalesce_lang(ctx.lang)
-    new_lang: Lang = "en" if current == "ru" else "ru"
-    profile_before = coalesce_lang(get_storage().get_user_lang(uid))
-    log_card_lang_toggle(
-        user_id=uid,
-        ui_lang=ui_lang,
-        previous_card_lang=current,
-        target_card_lang=new_lang,
-        profile_lang_before=profile_before,
-        profile_lang_after=profile_before,
-        image_reused=True,
-        run_text_only_called=True,
-    )
-    await cq.answer(t("generating", ui_lang))
-    try:
-        cap = await run_text_only(
-            settings,
-            occasion=ctx.occasion,
-            holiday=ctx.holiday,
-            text_style=ctx.text_style,
-            lang=new_lang,
-            profile_prefs=get_storage().get_profile_preferences(uid),
-            recipient_address=ctx.recipient_address or None,
-            sender_signature=ctx.sender_signature or None,
-            occasion_details=ctx.occasion_details or None,
+        await cq.answer(t("generating", ui_lang))
+        try:
+            texts = await run_text_only(
+                settings,
+                occasion=ctx.occasion,
+                holiday=ctx.holiday,
+                text_style=ctx.text_style,
+                lang=new_lang,
+                profile_prefs=get_storage().get_profile_preferences(uid),
+                recipient_address=ctx.recipient_address or None,
+                sender_signature=ctx.sender_signature or None,
+                occasion_details=ctx.occasion_details or None,
+            )
+        except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
+            logger.warning("regen_card_lang failed: %s", e, extra={"user_id": uid, "event": "error"})
+            await cq.message.answer(t("err_text", ui_lang))
+            return
+        if original is not None:
+            # Same clean image, phrase redrawn in the new language: no image generation.
+            sent = await _answer_card(
+                cq.message,
+                original=original,
+                short_text=texts.short_text,
+                caption_html=texts.caption_html,
+                reply_markup=after_card_keyboard(ui_lang, new_lang),
+            )
+            ctx.short_text = texts.short_text
+            if sent.photo:
+                ctx.photo_file_id = sent.photo[-1].file_id
+        else:
+            # Saved before embedded captions: no clean original, so only the caption changes.
+            await cq.message.answer_photo(
+                photo=photo_id,
+                caption=texts.caption_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=after_card_keyboard(ui_lang, new_lang),
+            )
+            ctx.photo_file_id = photo_id
+        await _reassert_main_menu_keyboard(cq.message, ui_lang)
+        ctx.lang = new_lang
+        ctx.caption_html = texts.caption_html
+        get_storage().save_last_card(uid, ctx)
+        profile_after = coalesce_lang(get_storage().get_user_lang(uid))
+        log_card_lang_toggle(
+            user_id=uid,
+            ui_lang=ui_lang,
+            previous_card_lang=current,
+            target_card_lang=new_lang,
+            profile_lang_before=profile_before,
+            profile_lang_after=profile_after,
+            image_reused=True,
+            run_text_only_called=True,
+            final_card_lang=new_lang,
         )
-    except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
-        logger.warning("regen_card_lang failed: %s", e, extra={"user_id": uid, "event": "error"})
-        await cq.message.answer(t("err_text", ui_lang))
-        return
-    sent = await cq.message.answer_photo(
-        photo=photo_id,
-        caption=cap,
-        parse_mode=ParseMode.HTML,
-        reply_markup=after_card_keyboard(ui_lang, new_lang),
-    )
-    await _reassert_main_menu_keyboard(cq.message, ui_lang)
-    ctx.lang = new_lang
-    ctx.caption_html = cap
-    ctx.photo_file_id = photo_id
-    get_storage().save_last_card(uid, ctx)
-    profile_after = coalesce_lang(get_storage().get_user_lang(uid))
-    log_card_lang_toggle(
-        user_id=uid,
-        ui_lang=ui_lang,
-        previous_card_lang=current,
-        target_card_lang=new_lang,
-        profile_lang_before=profile_before,
-        profile_lang_after=profile_after,
-        image_reused=True,
-        run_text_only_called=True,
-        final_card_lang=new_lang,
-    )
-    if should_increment_daily_count(uid, settings):
-        get_storage().increment_generation(uid)
-    logger.info("regen_card_lang_ok", extra={"user_id": uid, "event": "regen_card_lang"})
+        if should_increment_daily_count(uid, settings):
+            get_storage().increment_generation(uid)
+        logger.info("regen_card_lang_ok", extra={"user_id": uid, "event": "regen_card_lang"})
 
 
 # ----- Choosing language: typed «русский» / «english» or nudge -----

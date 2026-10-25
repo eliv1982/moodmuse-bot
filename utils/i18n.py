@@ -787,6 +787,10 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "Нет сохранённой открытки. Сначала создайте её через сценарий (/start).",
         "en": "No saved card yet. Create one with /start first.",
     },
+    "card_busy": {
+        "ru": "Открытка ещё готовится — дождитесь результата и нажмите кнопку снова.",
+        "en": "Your card is still being prepared — wait for it, then tap the button again.",
+    },
     "only_text_voice_step1": {
         "ru": "Опишите картинку текстом или голосовым сообщением (или «придумай сам»).",
         "en": "Describe the image in text or voice (or say “surprise me”).",

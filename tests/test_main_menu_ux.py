@@ -8,6 +8,7 @@ import pytest
 
 from handlers import main
 from handlers.profile import on_profile_home
+from services.card_generation import CardTexts
 from services.storage import LastCardContext, get_storage, init_storage, reset_storage_for_tests
 from utils.i18n import t
 from utils.main_menu import MAIN_MENU_BUTTON_TEXTS, main_menu_action_for_text, main_menu_reply_keyboard
@@ -146,7 +147,7 @@ async def test_regen_card_lang_does_not_change_profile_language(tmp_path) -> Non
     with (
         patch.object(main, "can_consume_generation", return_value=True),
         patch.object(main, "text_provider_configured", return_value=True),
-        patch.object(main, "run_text_only", AsyncMock(return_value="Hello")) as run_text,
+        patch.object(main, "run_text_only", AsyncMock(return_value=CardTexts("Hello", ""))) as run_text,
         patch.object(main, "run_image_only", AsyncMock()) as run_image,
         patch.object(main, "should_increment_daily_count", return_value=False),
     ):

@@ -16,7 +16,7 @@ class UnknownImageProviderError(ValueError):
 
 
 def _normalized_image_provider(settings: Settings) -> str:
-    return (settings.IMAGE_PROVIDER or "proxi").strip().lower()
+    return (settings.IMAGE_PROVIDER or "openai").strip().lower()
 
 
 def _is_known_image_provider(name: str) -> bool:
@@ -26,7 +26,7 @@ def _is_known_image_provider(name: str) -> bool:
 def get_image_provider(settings: Settings) -> ImageProvider:
     """
     Return image provider from settings.
-    Default: proxi (backward compatible).
+    Default: openai (direct API); proxi remains selectable as a legacy route.
     """
     name = _normalized_image_provider(settings)
     if name == "proxi":

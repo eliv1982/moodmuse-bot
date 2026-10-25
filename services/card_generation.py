@@ -1,11 +1,14 @@
 """
-Orchestration: refine image prompt + parallel image (image provider) + caption (text provider).
+Orchestration: refine image prompt + parallel image (image provider) + card texts (text provider).
+
+One text request returns both the short phrase printed on the image and the expanded Telegram caption.
 """
 from __future__ import annotations
 
 import asyncio
 import html
 import logging
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from config import Settings
@@ -13,17 +16,37 @@ from services.providers.factory import get_text_provider, text_provider_configur
 from services.providers.image_factory import get_image_provider
 from services.providers.openai_text import OpenAITextError
 from services.yandex_gpt import YandexGPTError
+from utils.card_texts import clean_short_text, parse_card_texts
 from utils.i18n import Lang, surprise_me_phrases
 from utils.profile_preferences import ProfilePreferences
 from utils.prompts import (
+    build_card_texts_user_prompt,
     build_image_prompt,
     build_text_system_prompt,
-    build_text_user_prompt,
     image_variation_suffix,
 )
 from utils.translate import translate_holiday_to_english, translate_prompt_to_english
 
 logger = logging.getLogger(__name__)
+
+# Room for the JSON wrapper and the short phrase on top of the caption itself.
+CARD_TEXTS_MAX_TOKENS = 480
+
+
+@dataclass(frozen=True)
+class CardTexts:
+    caption_html: str
+    """Expanded Telegram caption (HTML-escaped, length-capped)."""
+    short_text: str
+    """Plain one-line phrase for the image; empty when the model gave none."""
+
+
+@dataclass(frozen=True)
+class GeneratedCard:
+    image_bytes: bytes
+    """The clean provider image: no text drawn on it."""
+    texts: CardTexts
+    image_prompt_en: str
 
 
 def truncate_caption(text: str, max_len: int) -> str:
@@ -38,6 +61,15 @@ def truncate_caption(text: str, max_len: int) -> str:
 def caption_for_telegram_html(text: str, max_len: int) -> str:
     """Telegram HTML caption: escape and enforce length."""
     return html.escape(truncate_caption(text, max_len))
+
+
+def card_texts_from_reply(raw: str, max_caption_len: int) -> CardTexts:
+    """Split one model reply into the expanded caption and the short phrase for the image."""
+    short, full = parse_card_texts(raw)
+    return CardTexts(
+        caption_html=caption_for_telegram_html(full, max_caption_len),
+        short_text=clean_short_text(short),
+    )
 
 
 async def build_draft_image_prompt(
@@ -86,9 +118,9 @@ async def run_card_generation(
     recipient_address: Optional[str] = None,
     sender_signature: Optional[str] = None,
     occasion_details: Optional[str] = None,
-) -> Tuple[bytes, str, str]:
+) -> GeneratedCard:
     """
-    Returns (image_bytes, caption_html, final_image_prompt_en).
+    Returns the clean image, both card texts and the final English image prompt.
     """
     if image_prompt_override is not None:
         draft = image_prompt_override
@@ -106,7 +138,7 @@ async def run_card_generation(
     text_provider = get_text_provider(settings)
     refine_timeout = (
         settings.OPENAI_TIMEOUT
-        if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
+        if (settings.TEXT_PROVIDER or "openai").strip().lower() == "openai"
         else settings.YANDEX_PROMPT_REFINE_TIMEOUT
     )
 
@@ -137,10 +169,10 @@ async def run_card_generation(
         holiday=holiday,
         occasion_details=occasion_details,
     )
-    user_prompt = build_text_user_prompt(holiday, lang)
+    user_prompt = build_card_texts_user_prompt(holiday, lang)
     text_timeout = (
         settings.OPENAI_TIMEOUT
-        if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
+        if (settings.TEXT_PROVIDER or "openai").strip().lower() == "openai"
         else settings.YANDEX_TIMEOUT
     )
 
@@ -154,13 +186,13 @@ async def run_card_generation(
             system_prompt,
             user_prompt,
             timeout=text_timeout,
-            max_tokens=380,
+            max_tokens=CARD_TEXTS_MAX_TOKENS,
             temperature=0.65,
         )
 
     image_bytes, raw_text = await asyncio.gather(run_image(), run_text())
-    cap = caption_for_telegram_html(raw_text, settings.MAX_CAPTION_LENGTH)
-    return image_bytes, cap, final_prompt
+    texts = card_texts_from_reply(raw_text, settings.MAX_CAPTION_LENGTH)
+    return GeneratedCard(image_bytes=image_bytes, texts=texts, image_prompt_en=final_prompt)
 
 
 async def run_image_only(
@@ -183,11 +215,12 @@ async def run_text_only(
     recipient_address: Optional[str] = None,
     sender_signature: Optional[str] = None,
     occasion_details: Optional[str] = None,
-) -> str:
+) -> CardTexts:
+    """One text request: new short phrase and expanded caption for an existing card image."""
     text_provider = get_text_provider(settings)
     text_timeout = (
         settings.OPENAI_TIMEOUT
-        if (settings.TEXT_PROVIDER or "yandex").strip().lower() == "openai"
+        if (settings.TEXT_PROVIDER or "openai").strip().lower() == "openai"
         else settings.YANDEX_TIMEOUT
     )
     ra = recipient_address.strip() if recipient_address else None
@@ -214,9 +247,9 @@ async def run_text_only(
             holiday=holiday,
             occasion_details=od,
         ),
-        build_text_user_prompt(holiday, lang),
+        build_card_texts_user_prompt(holiday, lang),
         timeout=text_timeout,
-        max_tokens=380,
+        max_tokens=CARD_TEXTS_MAX_TOKENS,
         temperature=0.7,
     )
-    return caption_for_telegram_html(raw, settings.MAX_CAPTION_LENGTH)
+    return card_texts_from_reply(raw, settings.MAX_CAPTION_LENGTH)
