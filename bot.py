@@ -14,7 +14,7 @@ from aiogram.enums import ParseMode
 
 from config import Settings, get_settings
 from services.providers.stt_factory import normalize_stt_provider_name
-from handlers import admin_router, main_router, profile_router
+from handlers import admin_router, creation_router, main_router, profile_router
 from handlers.middlewares import AccessMiddleware, MaintenanceMiddleware
 from services.storage import init_storage
 from utils.bot_commands import setup_bot_commands
@@ -120,6 +120,8 @@ def build_dispatcher(allowed_user_ids: frozenset[int]) -> Dispatcher:
     dp.update.middleware(MaintenanceMiddleware())
     dp.include_router(admin_router)
     dp.include_router(profile_router)
+    # Before main_router: its state-bound handlers must run ahead of main's catch-all callback/text handlers.
+    dp.include_router(creation_router)
     dp.include_router(main_router)
     return dp
 

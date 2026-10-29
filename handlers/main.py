@@ -16,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import Settings, get_settings
-from handlers.states import CardStates, ProfileStates
+from handlers.states import CardStates, CreationStates, ProfileStates
 from services.card_generation import run_card_generation, run_image_only, run_text_only
 from services.card_render import render_card_image
 from services.proxi import ProxiAPIError
@@ -1389,21 +1389,25 @@ def text_style_keyboard(lang: Lang) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def after_card_keyboard(ui_lang: Lang, card_lang: Lang) -> InlineKeyboardMarkup:
-    """Post-generation inline actions: ui_lang for labels, card_lang for caption toggle target."""
+def after_card_keyboard(
+    ui_lang: Lang,
+    card_lang: Lang,
+    ctx: Optional[LastCardContext] = None,
+) -> InlineKeyboardMarkup:
+    """
+    Post-generation inline actions: ui_lang for labels, card_lang for caption toggle target.
+
+    With ``ctx`` the two text buttons appear only when the card has a text the model may write again; a card
+    whose inscription and message the user fixed keeps just "repeat" and "new image".
+    """
     toggle_key = "regen_card_lang_en" if card_lang == "ru" else "regen_card_lang_ru"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text=t("regen_repeat", ui_lang), callback_data="regen_repeat"),
-                InlineKeyboardButton(text=t("regen_text", ui_lang), callback_data="regen_text"),
-            ],
-            [
-                InlineKeyboardButton(text=t("regen_image", ui_lang), callback_data="regen_image"),
-                InlineKeyboardButton(text=t(toggle_key, ui_lang), callback_data="regen_card_lang"),
-            ],
-        ]
-    )
+    ai_text = ctx is None or ctx.has_ai_text()
+    top = [InlineKeyboardButton(text=t("regen_repeat", ui_lang), callback_data="regen_repeat")]
+    bottom = [InlineKeyboardButton(text=t("regen_image", ui_lang), callback_data="regen_image")]
+    if ai_text:
+        top.append(InlineKeyboardButton(text=t("regen_text", ui_lang), callback_data="regen_text"))
+        bottom.append(InlineKeyboardButton(text=t(toggle_key, ui_lang), callback_data="regen_card_lang"))
+    return InlineKeyboardMarkup(inline_keyboard=[top, bottom])
 
 
 async def _start_create_card_flow(anchor: Message, state: FSMContext, uid: int) -> None:
@@ -1414,13 +1418,16 @@ async def _start_create_card_flow(anchor: Message, state: FSMContext, uid: int) 
         await state.set_state(CardStates.choosing_language)
         await _send_wizard_prompt(anchor, state, t("start_intro", "ru"), language_keyboard())
         return
-    lang = coalesce_lang(lang_stored)
     await clear_idle_small_talk_session(state)
     await state.update_data(lang=lang_stored)
-    await state.set_state(CardStates.choosing_occasion)
-    await _send_wizard_prompt(
-        anchor, state, t("choose_occasion", lang), occasion_keyboard(lang), prompt_kind="occasion"
-    )
+    await _begin_creation(anchor, state, uid)
+
+
+async def _begin_creation(anchor: Message, state: FSMContext, uid: int) -> None:
+    """Guided creation (handlers.creation) replaced the fixed wizard as the way to make a card."""
+    from handlers.creation import start_creation  # imported late: creation imports this module
+
+    await start_creation(anchor, state, uid)
 
 
 async def _lang_from_state(state: FSMContext, user_id: int) -> Lang:
@@ -1572,14 +1579,7 @@ async def on_language_chosen(cq: CallbackQuery, state: FSMContext) -> None:
 
     if current == CardStates.choosing_language.state:
         await clear_idle_small_talk_session(state)
-        await state.set_state(CardStates.choosing_occasion)
-        await _send_wizard_prompt(
-            cq.message,
-            state,
-            t("choose_occasion", lang),
-            occasion_keyboard(lang),
-            prompt_kind="occasion",
-        )
+        await _begin_creation(cq.message, state, uid)
         return
 
     await cq.message.answer(t("lang_saved", lang), parse_mode=ParseMode.HTML)
@@ -2189,12 +2189,16 @@ async def _answer_card(
     short_text: str,
     caption_html: str,
     reply_markup: InlineKeyboardMarkup,
+    exact_inscription: bool = False,
 ) -> Message:
     """
     Send a card: the short phrase drawn on the clean ``original``. If drawing fails or there is no
     phrase, the clean image goes out as-is; the expanded caption is sent either way.
     """
-    image, _ = await render_card_image(original, short_text)
+    if exact_inscription:
+        image, _ = await render_card_image(original, short_text, exact=True)
+    else:
+        image, _ = await render_card_image(original, short_text)
     return await anchor.answer_photo(
         photo=BufferedInputFile(image, filename="card.png"),
         caption=caption_html,
@@ -2211,6 +2215,28 @@ def _photo_file_fallback(cq: CallbackQuery, ctx: LastCardContext) -> Optional[st
     return None
 
 
+def _text_only_extras(ctx: LastCardContext) -> dict[str, Any]:
+    """Extra ``run_text_only`` arguments for cards made by guided creation (none for older cards)."""
+    if ctx.inscription_mode == "ai" and not ctx.creative_context:
+        return {}
+    return {
+        "creative_context": ctx.creative_context or None,
+        # An inscription the user fixed is kept, so a new phrase would only be thrown away.
+        "caption_only": ctx.inscription_mode != "ai",
+    }
+
+
+def _texts_after_rewrite(ctx: LastCardContext, texts: Any) -> tuple[str, str]:
+    """
+    ``(phrase, caption)`` for the rewritten card. Only what the model wrote is replaced: an inscription the
+    user wrote or approved, and a message the user wrote (or declined), survive "new caption" and the
+    language switch untouched.
+    """
+    short_text = texts.short_text if ctx.inscription_mode == "ai" else ctx.short_text
+    caption_html = texts.caption_html if ctx.caption_mode == "ai" else ctx.caption_html
+    return short_text, caption_html
+
+
 @router.callback_query(F.data == "regen_repeat")
 async def regen_repeat(cq: CallbackQuery) -> None:
     if not cq.from_user or not cq.message:
@@ -2219,15 +2245,15 @@ async def regen_repeat(cq: CallbackQuery) -> None:
     ctx = get_storage().get_last_card(uid)
     ui_lang = _ui_lang_for_user(uid)
     card_lang = coalesce_lang(ctx.lang if ctx else None)
-    if not ctx or not ctx.photo_file_id or not ctx.caption_html:
+    if not ctx or not ctx.photo_file_id:
         await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
         return
     await cq.answer()
     await cq.message.answer_photo(
         photo=ctx.photo_file_id,
-        caption=ctx.caption_html,
+        caption=ctx.caption_html or None,  # a card made without a message has none
         parse_mode=ParseMode.HTML,
-        reply_markup=after_card_keyboard(ui_lang, card_lang),
+        reply_markup=after_card_keyboard(ui_lang, card_lang, ctx),
     )
     logger.info("regen_repeat", extra={"user_id": uid, "event": "regen_repeat"})
 
@@ -2248,6 +2274,9 @@ async def regen_text(cq: CallbackQuery) -> None:
         card_lang = coalesce_lang(ctx.lang if ctx else None)
         if not ctx:
             await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+            return
+        if not ctx.has_ai_text():
+            await cq.answer(t("card_text_fixed", ui_lang), show_alert=True)
             return
         if not can_consume_generation(uid, settings):
             await cq.answer(t("rate_limited", ui_lang), show_alert=True)
@@ -2274,30 +2303,33 @@ async def regen_text(cq: CallbackQuery) -> None:
                 recipient_address=ctx.recipient_address or None,
                 sender_signature=ctx.sender_signature or None,
                 occasion_details=ctx.occasion_details or None,
+                **_text_only_extras(ctx),
             )
         except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
             logger.warning("regen_text failed: %s", e, extra={"user_id": uid, "event": "error"})
             await cq.message.answer(t("err_text", ui_lang))
             return
+        short_text, caption_html = _texts_after_rewrite(ctx, texts)
         if original is not None:
-            # Same clean image, new phrase drawn on it: no image generation.
+            # Same clean image, new text drawn on it: no image generation.
             sent = await _answer_card(
                 cq.message,
                 original=original,
-                short_text=texts.short_text,
-                caption_html=texts.caption_html,
-                reply_markup=after_card_keyboard(ui_lang, card_lang),
+                short_text=short_text,
+                caption_html=caption_html,
+                reply_markup=after_card_keyboard(ui_lang, card_lang, ctx),
+                exact_inscription=ctx.inscription_mode == "text",
             )
-            ctx.short_text = texts.short_text
+            ctx.short_text = short_text
         else:
             # Saved before embedded captions: no clean original, so only the caption changes.
             sent = await cq.message.answer_photo(
                 photo=photo_id,
-                caption=texts.caption_html,
+                caption=caption_html,
                 parse_mode=ParseMode.HTML,
-                reply_markup=after_card_keyboard(ui_lang, card_lang),
+                reply_markup=after_card_keyboard(ui_lang, card_lang, ctx),
             )
-        ctx.caption_html = texts.caption_html
+        ctx.caption_html = caption_html
         if sent.photo:
             ctx.photo_file_id = sent.photo[-1].file_id
         get_storage().save_last_card(uid, ctx)
@@ -2353,7 +2385,8 @@ async def regen_image(cq: CallbackQuery) -> None:
             original=image_bytes,
             short_text=ctx.short_text,
             caption_html=ctx.caption_html or "",
-            reply_markup=after_card_keyboard(ui_lang, card_lang),
+            reply_markup=after_card_keyboard(ui_lang, card_lang, ctx),
+            exact_inscription=ctx.inscription_mode == "text",
         )
         ctx.image_prompt_en = used
         if sent.photo:
@@ -2382,6 +2415,9 @@ async def regen_card_lang(cq: CallbackQuery) -> None:
         ctx, original = get_storage().get_last_card_with_original(uid)
         if not ctx:
             await cq.answer(t("no_saved_card", ui_lang), show_alert=True)
+            return
+        if not ctx.has_ai_text():
+            await cq.answer(t("card_text_fixed", ui_lang), show_alert=True)
             return
         if not can_consume_generation(uid, settings):
             await cq.answer(t("rate_limited", ui_lang), show_alert=True)
@@ -2421,35 +2457,38 @@ async def regen_card_lang(cq: CallbackQuery) -> None:
                 recipient_address=ctx.recipient_address or None,
                 sender_signature=ctx.sender_signature or None,
                 occasion_details=ctx.occasion_details or None,
+                **_text_only_extras(ctx),
             )
         except (YandexGPTError, OpenAITextError, asyncio.TimeoutError) as e:
             logger.warning("regen_card_lang failed: %s", e, extra={"user_id": uid, "event": "error"})
             await cq.message.answer(t("err_text", ui_lang))
             return
+        short_text, caption_html = _texts_after_rewrite(ctx, texts)
         if original is not None:
             # Same clean image, phrase redrawn in the new language: no image generation.
             sent = await _answer_card(
                 cq.message,
                 original=original,
-                short_text=texts.short_text,
-                caption_html=texts.caption_html,
-                reply_markup=after_card_keyboard(ui_lang, new_lang),
+                short_text=short_text,
+                caption_html=caption_html,
+                reply_markup=after_card_keyboard(ui_lang, new_lang, ctx),
+                exact_inscription=ctx.inscription_mode == "text",
             )
-            ctx.short_text = texts.short_text
+            ctx.short_text = short_text
             if sent.photo:
                 ctx.photo_file_id = sent.photo[-1].file_id
         else:
             # Saved before embedded captions: no clean original, so only the caption changes.
             await cq.message.answer_photo(
                 photo=photo_id,
-                caption=texts.caption_html,
+                caption=caption_html,
                 parse_mode=ParseMode.HTML,
-                reply_markup=after_card_keyboard(ui_lang, new_lang),
+                reply_markup=after_card_keyboard(ui_lang, new_lang, ctx),
             )
             ctx.photo_file_id = photo_id
         await _reassert_main_menu_keyboard(cq.message, ui_lang)
         ctx.lang = new_lang
-        ctx.caption_html = texts.caption_html
+        ctx.caption_html = caption_html
         get_storage().save_last_card(uid, ctx)
         profile_after = coalesce_lang(get_storage().get_user_lang(uid))
         log_card_lang_toggle(
@@ -2493,15 +2532,8 @@ async def on_lang_wait_text(message: Message, state: FSMContext, bot: Bot) -> No
         get_storage().set_user_lang(uid, picked)
         await clear_idle_small_talk_session(state)
         await state.update_data(lang=picked)
-        await state.set_state(CardStates.choosing_occasion)
         await _safe_delete_message(bot, message.chat.id, message.message_id)
-        await _send_wizard_prompt(
-            message,
-            state,
-            t("choose_occasion", picked),
-            occasion_keyboard(picked),
-            prompt_kind="occasion",
-        )
+        await _begin_creation(message, state, uid)
         logger.info("lang_text_pick", extra={"user_id": uid, "event": "lang_pick_text"})
         return
     lang = coalesce_lang(get_storage().get_user_lang(uid))
@@ -2534,6 +2566,7 @@ _NON_IDLE_TEXT_STATES = (
     CardStates.signature_toggle,
     CardStates.sender_signature,
     CardStates.generating,
+    *CreationStates.__all_states__,
     ProfileStates.onboarding_name,
     ProfileStates.confirming_name,
     ProfileStates.editing_name,

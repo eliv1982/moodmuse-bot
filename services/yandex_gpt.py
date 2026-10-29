@@ -129,6 +129,7 @@ async def enhance_image_prompt(
     model_uri: str,
     url: str,
     timeout: float = 45.0,
+    artwork: bool = False,
 ) -> str:
     """
     Refine the English image prompt for diffusion / image models.
@@ -141,7 +142,11 @@ async def enhance_image_prompt(
             "Output ONLY the final prompt text: no quotes, no explanations, no markdown. "
             "Keep it under 700 characters. "
             "Emphasize composition, lighting, mood, and art direction. "
-            "The image must stay a greeting-card style illustration or design, no readable text on the image."
+            + (
+                "The image is a standalone artwork, not a greeting card; no readable text on the image."
+                if artwork
+                else "The image must stay a greeting-card style illustration or design, no readable text on the image."
+            )
         )
         user = f"Draft prompt:\n{draft_english_prompt}\n\nReturn the improved prompt only."
     else:
@@ -151,7 +156,11 @@ async def enhance_image_prompt(
             "Выведи ТОЛЬКО финальный промпт на английском: без кавычек, без пояснений, без markdown. "
             "Не больше 700 символов. "
             "Добавь композицию, свет, настроение, стиль. "
-            "Это дизайн поздравительной открытки, без читаемого текста на изображении."
+            + (
+                "Это самостоятельное изображение, не открытка; без читаемого текста на изображении."
+                if artwork
+                else "Это дизайн поздравительной открытки, без читаемого текста на изображении."
+            )
         )
         user = f"Черновик промпта (English):\n{draft_english_prompt}\n\nВерни только улучшенный промпт."
 

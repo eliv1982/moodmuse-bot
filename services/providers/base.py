@@ -30,6 +30,7 @@ class TextProvider(Protocol):
         draft_english_prompt: str,
         lang: Lang,
         timeout: float,
+        artwork: bool = False,
     ) -> str:
-        """Refine English image prompt for diffusion models."""
+        """Refine English image prompt for diffusion models (``artwork``: a picture, not a greeting card)."""
         ...

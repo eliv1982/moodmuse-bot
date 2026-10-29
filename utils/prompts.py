@@ -172,19 +172,67 @@ def build_image_prompt(
     from utils.occasion_details import build_occasion_details_image_suffix
 
     occasion_extra = build_occasion_details_image_suffix(holiday, occasion_details)
-    recipient_extra = ""
-    if recipient_address and recipient_address.strip():
-        addr = recipient_address.strip()
-        recipient_extra = (
-            f", addressee context for mood only (not necessarily pictured): {addr}; "
-            "do not infer gender of people from this phrase or the card creator's profile name; "
-            "keep depicted people neutral unless the image description explicitly specifies otherwise; "
-            "the person who created the card is not necessarily the person shown in the image"
-        )
+    recipient_extra = _recipient_image_context(recipient_address)
     return (
         f"{base}, {style_phrase}, {audience}{occasion_extra}{recipient_extra}, "
         "greeting card design, no text on image"
     ).strip()
+
+
+def _recipient_image_context(recipient_address: Optional[str]) -> str:
+    """Addressee hint for the image prompt: mood only, never a reason to depict or gender anyone."""
+    if not (recipient_address and recipient_address.strip()):
+        return ""
+    return (
+        f", addressee context for mood only (not necessarily pictured): {recipient_address.strip()}; "
+        "do not infer gender of people from this phrase or the card creator's profile name; "
+        "keep depicted people neutral unless the image description explicitly specifies otherwise; "
+        "the person who created the card is not necessarily the person shown in the image"
+    )
+
+
+# Appended to every guided/free-form image prompt, after any LLM refinement: the inscription (if any) is
+# drawn afterwards by the card renderer, so the image model must never print text of its own.
+NO_TEXT_IN_IMAGE = (
+    "No text, letters, numbers, captions, signatures or watermarks anywhere in the image."
+)
+
+
+def build_brief_image_prompt(
+    *,
+    concept: str,
+    occasion: str = "",
+    recipient: str = "",
+    mood: str = "",
+    style_key: str = "",
+    style_text: str = "",
+    restrictions: Optional[list[str]] = None,
+    greeting_card: bool = True,
+) -> str:
+    """
+    Draft image prompt for a creative brief. The concept and the user's own wording for mood, style and
+    restrictions go in as written; a style left to the AI is stated as such rather than defaulted.
+    """
+    style = IMAGE_STYLES.get(style_key) or (style_text or "").strip()
+    parts = [concept.strip()]
+    if occasion.strip():
+        parts.append(f"occasion: {occasion.strip()}")
+    if mood.strip():
+        parts.append(f"mood: {mood.strip()}")
+    parts.append(style or "visual style chosen to best suit the idea")
+    parts.append("greeting card design" if greeting_card else "standalone artwork, not a greeting card")
+    prompt = ", ".join(parts)
+    if greeting_card:
+        prompt += _recipient_image_context(recipient)
+    cleaned = [r.strip() for r in (restrictions or []) if r and r.strip()]
+    if cleaned:
+        prompt += ". " + hard_constraints_clause(cleaned)
+    return f"{prompt}. {NO_TEXT_IN_IMAGE}"
+
+
+def hard_constraints_clause(restrictions: list[str]) -> str:
+    quoted = "; ".join(f"“{r}”" for r in restrictions)
+    return f"Hard constraints from the requester, follow them exactly, in their own words: {quoted}"
 
 
 def build_text_system_prompt(
@@ -196,6 +244,7 @@ def build_text_system_prompt(
     sender_signature: Optional[str] = None,
     holiday: Optional[str] = None,
     occasion_details: Optional[str] = None,
+    creative_context: Optional[str] = None,
 ) -> str:
     """System prompt for YandexGPT."""
     style_pair = TEXT_STYLES.get(text_style_key, ("тёплый и уместный", "warm and fitting"))
@@ -272,6 +321,9 @@ def build_text_system_prompt(
     )
     if personalization:
         base += " " + personalization
+
+    if creative_context and creative_context.strip():
+        base += " " + creative_context.strip()
 
     base += _card_output_language_lock(lang)
     return base

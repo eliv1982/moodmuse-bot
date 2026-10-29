@@ -41,10 +41,12 @@ class YandexTextProvider:
         draft_english_prompt: str,
         lang: Lang,
         timeout: float,
+        artwork: bool = False,
     ) -> str:
         return await enhance_image_prompt(
             draft_english_prompt=draft_english_prompt,
             lang=lang,
+            artwork=artwork,
             api_key=self._settings.YANDEX_API_KEY,
             folder_id=self._settings.YANDEX_FOLDER_ID,
             model_uri=self._settings.model_uri(),

@@ -205,7 +205,7 @@ async def test_create_card_clears_idle_session() -> None:
 
     with (
         patch("handlers.main.get_storage", return_value=storage),
-        patch("handlers.main._send_wizard_prompt", new_callable=AsyncMock),
+        patch("handlers.main._begin_creation", new_callable=AsyncMock),
         patch(
             "handlers.main.clear_idle_small_talk_session",
             new_callable=AsyncMock,

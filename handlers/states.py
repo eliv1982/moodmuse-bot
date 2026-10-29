@@ -22,6 +22,24 @@ class CardStates(StatesGroup):
     generating = State()
 
 
+class CreationStates(StatesGroup):
+    """Guided creation: both modes ("choose from options", "my idea") fill one creative brief."""
+
+    choosing_mode = State()
+    concept = State()
+    mood = State()
+    style = State()
+    inscription = State()
+    preferences = State()
+    caption = State()
+    idea = State()
+    clarifying = State()
+    awaiting_text = State()
+    reviewing_suggestion = State()
+    confirming = State()
+    generating = State()
+
+
 class ProfileStates(StatesGroup):
     """Profile onboarding and name editing."""
 

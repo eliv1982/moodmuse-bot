@@ -21,6 +21,12 @@ from utils.profile_preferences import (
 
 _lock = threading.Lock()
 
+# How the card's two texts came about. "ai" (the only kind before guided creation) means the text model wrote
+# it and may write it again; "text" is an exact inscription the user wrote or approved; "user" is an extended
+# message the user wrote; "none" means the card deliberately has none.
+INSCRIPTION_MODES = frozenset({"ai", "text", "none"})
+CAPTION_MODES = frozenset({"ai", "user", "none"})
+
 
 def utc_today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -44,6 +50,16 @@ class LastCardContext:
     occasion_details: str = ""
     """Short phrase of the current card (plain text, empty for cards saved before embedded captions)."""
     short_text: str = ""
+    """Origin of ``short_text``: "ai" (regenerated with the caption), "text" (kept exactly) or "none"."""
+    inscription_mode: str = "ai"
+    """Origin of ``caption_html``: "ai" (regenerated on request), "user" (kept exactly) or "none"."""
+    caption_mode: str = "ai"
+    """Idea, mood and restrictions of a guided card, passed on when its caption is written again."""
+    creative_context: str = ""
+
+    def has_ai_text(self) -> bool:
+        """Whether the card has a text the model wrote and may write again (new caption, other language)."""
+        return self.caption_mode == "ai" or self.inscription_mode == "ai"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +76,9 @@ class LastCardContext:
             "sender_signature": self.sender_signature,
             "occasion_details": self.occasion_details,
             "short_text": self.short_text,
+            "inscription_mode": self.inscription_mode,
+            "caption_mode": self.caption_mode,
+            "creative_context": self.creative_context,
         }
 
     @classmethod
@@ -79,9 +98,17 @@ class LastCardContext:
                 sender_signature=str(d.get("sender_signature", "")),
                 occasion_details=str(d.get("occasion_details", "")),
                 short_text=str(d.get("short_text", "")),
+                inscription_mode=_mode(d.get("inscription_mode"), INSCRIPTION_MODES),
+                caption_mode=_mode(d.get("caption_mode"), CAPTION_MODES),
+                creative_context=str(d.get("creative_context", "")),
             )
         except (TypeError, ValueError):
             return None
+
+
+def _mode(value: Any, allowed: frozenset[str]) -> str:
+    """A stored mode, or "ai" (how every card was made before guided creation) when missing or unknown."""
+    return value if isinstance(value, str) and value in allowed else "ai"
 
 
 class BotStorage:

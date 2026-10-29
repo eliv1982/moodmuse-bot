@@ -1,4 +1,4 @@
-"""In-bot /help text matches the implemented wizard order and registered commands."""
+"""In-bot /help text matches the implemented creation flow and registered commands."""
 from __future__ import annotations
 
 import re
@@ -10,46 +10,36 @@ import pytest
 from utils.bot_commands import setup_bot_commands
 from utils.i18n import t
 
-# One marker per numbered wizard step, in the order the wizard asks them:
-# recipient -> holiday (+ optional details) -> image idea -> image style -> caption style
-# -> optional greeting/address -> optional signature.
-STEP_MARKERS = {
-    "ru": ["близкие", "праздник", "идея картинки", "стиль картинки", "стиль текста", "обращение", "подпись"],
-    "en": ["loved ones", "holiday", "image idea", "image style", "caption style", "greeting/address", "signature"],
+MODE_MARKERS = {
+    "ru": ["выбрать из вариантов", "опишу своими словами"],
+    "en": ["choose from options", "describe it in your own words"],
 }
-DETAILS_MARKER = {"ru": "возраст", "en": "age"}
-SUMMARY_MARKER = {"ru": "сводку", "en": "summary"}
-NO_CONFIRM_MARKER = {"ru": "без отдельного подтверждения", "en": "no separate confirmation"}
-
-
-def _numbered_lines(text: str) -> list[str]:
-    return [line for line in text.splitlines() if re.match(r"^\d\) ", line)]
-
-
-@pytest.mark.parametrize("lang", ["ru", "en"])
-def test_help_lists_wizard_steps_in_implemented_order(lang: str) -> None:
-    lines = _numbered_lines(t("help_text", lang))
-    assert [line[:2] for line in lines] == [f"{i})" for i in range(1, 8)]
-    for line, marker in zip(lines, STEP_MARKERS[lang], strict=True):
-        assert marker in line.lower()
+INSCRIPTION_MARKERS = {
+    "ru": ["точный текст", "только после вашего одобрения", "без надписи"],
+    "en": ["exact text", "only after you approve", "or none"],
+}
+CONFIRM_MARKER = {"ru": "только после кнопки «создать»", "en": "only after you press “create”"}
 
 
 @pytest.mark.parametrize("lang", ["ru", "en"])
-def test_help_marks_optional_steps_and_occasion_details(lang: str) -> None:
-    lines = _numbered_lines(t("help_text", lang))
-    assert DETAILS_MARKER[lang] in lines[1].lower()
-    optional = "по желанию" if lang == "ru" else "optional"
-    assert optional in lines[5].lower()
-    assert optional in lines[6].lower()
+def test_help_describes_both_creation_modes(lang: str) -> None:
+    text = t("help_text", lang).lower()
+    for marker in MODE_MARKERS[lang]:
+        assert marker in text
 
 
 @pytest.mark.parametrize("lang", ["ru", "en"])
-def test_help_says_generation_starts_from_summary_without_confirmation(lang: str) -> None:
-    text = t("help_text", lang)
-    last_step = text.index(_numbered_lines(text)[-1])
-    tail = text[last_step:]
-    assert SUMMARY_MARKER[lang] in tail
-    assert NO_CONFIRM_MARKER[lang] in tail
+def test_help_explains_the_three_inscription_choices_and_that_ai_text_needs_approval(lang: str) -> None:
+    text = t("help_text", lang).lower()
+    for marker in INSCRIPTION_MARKERS[lang]:
+        assert marker in text
+
+
+@pytest.mark.parametrize("lang", ["ru", "en"])
+def test_help_says_the_image_is_created_only_after_confirmation(lang: str) -> None:
+    text = t("help_text", lang).lower()
+    assert CONFIRM_MARKER[lang] in text
+    assert "without a separate confirmation" not in text and "без отдельного подтверждения" not in text
 
 
 @pytest.mark.asyncio

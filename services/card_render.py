@@ -61,20 +61,36 @@ def _split_long_word(word: str, font: ImageFont.FreeTypeFont, max_width: float) 
     return pieces
 
 
-def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: float) -> list[str]:
-    """Greedy word wrap; a word wider than the box is split by characters."""
+def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: float, *, exact: bool = False) -> list[str]:
+    """Greedy word wrap, one paragraph per source line; a word wider than the box is split by characters."""
     lines: list[str] = []
-    current = ""
-    for word in text.split():
-        for piece in _split_long_word(word, font, max_width):
-            candidate = f"{current} {piece}" if current else piece
-            if current and font.getlength(candidate) > max_width:
-                lines.append(current)
-                current = piece
-            else:
-                current = candidate
-    if current:
-        lines.append(current)
+    if exact:
+        for paragraph in text.split("\n"):
+            if not paragraph:
+                lines.append("")
+            while paragraph:
+                end = 1
+                while end < len(paragraph) and font.getlength(paragraph[:end + 1]) <= max_width:
+                    end += 1
+                if end < len(paragraph):
+                    boundary = paragraph.rfind(" ", 0, end)
+                    if boundary > 0:
+                        end = boundary + 1
+                lines.append(paragraph[:end])
+                paragraph = paragraph[end:]
+        return lines
+    for paragraph in text.split("\n"):
+        current = ""
+        for word in paragraph.split():
+            for piece in _split_long_word(word, font, max_width):
+                candidate = f"{current} {piece}" if current else piece
+                if current and font.getlength(candidate) > max_width:
+                    lines.append(current)
+                    current = piece
+                else:
+                    current = candidate
+        if current:
+            lines.append(current)
     return lines
 
 
@@ -90,7 +106,9 @@ def _block_height(font: ImageFont.FreeTypeFont, line_count: int) -> int:
     return ascent + (line_count - 1) * round(font.size * LINE_SPACING) + descent
 
 
-def fit_text(text: str, box_width: int, box_height: int, max_size: int, min_size: int) -> FittedText:
+def fit_text(
+    text: str, box_width: int, box_height: int, max_size: int, min_size: int, *, exact: bool = False,
+) -> FittedText:
     """
     Largest font size (``max_size`` down to ``min_size``) at which ``text`` wraps into at most MAX_LINES
     lines inside the box. If it does not fit even at ``min_size`` it is shortened word by word and ends
@@ -99,7 +117,7 @@ def fit_text(text: str, box_width: int, box_height: int, max_size: int, min_size
 
     def attempt(candidate: str, size: int) -> list[str] | None:
         font = _font(size)
-        lines = wrap_text(candidate, font, box_width - 2 * _stroke_px(size))
+        lines = wrap_text(candidate, font, box_width - 2 * _stroke_px(size), exact=exact)
         if lines and len(lines) <= MAX_LINES and _block_height(font, len(lines)) <= box_height:
             return lines
         return None
@@ -143,7 +161,7 @@ def _scrim(width: int, height: int, top: int, solid_top: int) -> Image.Image:
     return overlay
 
 
-def draw_short_text(original: bytes, text: str) -> bytes:
+def draw_short_text(original: bytes, text: str, *, exact: bool = False) -> bytes:
     """Return a PNG of ``original`` with ``text`` centred near the bottom. Raises on undecodable input."""
     with Image.open(io.BytesIO(original)) as source:
         base = source.convert("RGBA")
@@ -153,7 +171,13 @@ def draw_short_text(original: bytes, text: str) -> bytes:
     box_height = round(height * MAX_BLOCK_HEIGHT)
     max_size = max(MIN_FONT_PX, round(width * MAX_FONT))
     min_size = max(MIN_FONT_PX, round(width * MIN_FONT))
-    fitted = fit_text(text, box_width, box_height, max_size, min_size)
+    fitted = fit_text(text, box_width, box_height, max_size, min_size, exact=exact)
+    if exact and fitted.truncated:
+        # Actual output geometry can be wider/shorter than the nominal validation square. Reduce font
+        # size rather than silently shortening an inscription the user fixed.
+        fitted = fit_text(text, box_width, box_height, max_size, MIN_FONT_PX, exact=True)
+        if fitted.truncated:
+            raise ValueError("Exact inscription does not fit the actual image")
 
     font = _font(fitted.size)
     ascent, _ = font.getmetrics()
@@ -184,7 +208,64 @@ def draw_short_text(original: bytes, text: str) -> bytes:
     return out.getvalue()
 
 
-async def render_card_image(original: bytes, short_text: str) -> tuple[bytes, bool]:
+# --- exact (user-approved) inscriptions -------------------------------------------------------------------
+#
+# AI phrases are cleaned and, if need be, shortened (``fit_text`` ends them with an ellipsis). A phrase the
+# user wrote or approved must be drawn exactly as given, so it is checked *before* generation: it either
+# fits as-is or the user is asked to change it. Validation uses a nominal 1024 px square; the exact
+# renderer also checks the actual output geometry and never uses a shortened fit.
+
+INSCRIPTION_MAX_CHARS = 120
+_CHECK_SIZE = 1024
+_MISSING_GLYPH = "￿"  # no font maps it, so it renders the font's ".notdef" box
+
+
+@dataclass(frozen=True)
+class InscriptionCheck:
+    ok: bool
+    reason: str = ""
+    """``empty`` / ``too_long`` / ``unsupported`` / ``does_not_fit`` when not ok."""
+    detail: str = ""
+    """The offending characters for ``unsupported``."""
+
+
+def _unsupported_chars(text: str) -> str:
+    font = _font(MIN_FONT_PX * 4)
+    missing = font.getmask(_MISSING_GLYPH)
+    reference = (bytes(missing), missing.size)
+    bad: list[str] = []
+    for ch in text:
+        if ch.isspace() or ch in bad:
+            continue
+        glyph = font.getmask(ch)
+        if (bytes(glyph), glyph.size) == reference:
+            bad.append(ch)
+    return "".join(bad)
+
+
+def check_inscription(text: str) -> InscriptionCheck:
+    """Whether ``text`` can be drawn on a card exactly as written (see the block comment above)."""
+    if not (text or "").strip():
+        return InscriptionCheck(False, "empty")
+    if len(text) > INSCRIPTION_MAX_CHARS:
+        return InscriptionCheck(False, "too_long")
+    bad = _unsupported_chars(text)
+    if bad:
+        return InscriptionCheck(False, "unsupported", bad)
+    fitted = fit_text(
+        text,
+        round(_CHECK_SIZE * (1 - 2 * MARGIN_X)),
+        round(_CHECK_SIZE * MAX_BLOCK_HEIGHT),
+        max(MIN_FONT_PX, round(_CHECK_SIZE * MAX_FONT)),
+        max(MIN_FONT_PX, round(_CHECK_SIZE * MIN_FONT)),
+        exact=True,
+    )
+    if fitted.truncated:
+        return InscriptionCheck(False, "does_not_fit")
+    return InscriptionCheck(True)
+
+
+async def render_card_image(original: bytes, short_text: str, *, exact: bool = False) -> tuple[bytes, bool]:
     """
     ``(image to send, phrase_drawn)``. Never raises: with no phrase, or if drawing fails for any reason
     (bad font file, undecodable image, ...), the clean original comes back with ``phrase_drawn=False``.
@@ -193,6 +274,8 @@ async def render_card_image(original: bytes, short_text: str) -> tuple[bytes, bo
     if not text:
         return original, False
     try:
+        if exact:
+            return await asyncio.to_thread(draw_short_text, original, text, exact=True), True
         return await asyncio.to_thread(draw_short_text, original, text), True
     except Exception:
         logger.exception("card text rendering failed; sending the image without the embedded phrase")

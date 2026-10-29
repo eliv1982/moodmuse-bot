@@ -791,6 +791,10 @@ MESSAGES: dict[str, dict[Lang, str]] = {
         "ru": "Открытка ещё готовится — дождитесь результата и нажмите кнопку снова.",
         "en": "Your card is still being prepared — wait for it, then tap the button again.",
     },
+    "card_text_fixed": {
+        "ru": "Тексты на этой открытке заданы вами — переписывать нечего. Можно создать новую картинку.",
+        "en": "The texts on this card are the ones you set, so there is nothing to rewrite. You can make a new image.",
+    },
     "only_text_voice_step1": {
         "ru": "Опишите картинку текстом или голосовым сообщением (или «придумай сам»).",
         "en": "Describe the image in text or voice (or say “surprise me”).",
@@ -903,18 +907,17 @@ MESSAGES: dict[str, dict[Lang, str]] = {
     },
     "help_text": {
         "ru": (
-            "<b>MoodMuse</b> — бот для тёплых открыток: картинка и подпись под праздник или повод.\n\n"
-            "<b>Создание открытки</b>\n"
-            "1) для кого (клиенты, коллеги, близкие)\n"
-            "2) праздник или повод (можно «просто так»); для дня рождения или юбилея — "
-            "по желанию возраст, дата или период\n"
-            "3) идея картинки: «Придумай сам» или особые пожелания\n"
-            "4) стиль картинки\n"
-            "5) стиль текста\n"
-            "6) по желанию — обращение\n"
-            "7) по желанию — подпись\n\n"
-            "После последнего шага бот покажет сводку и сразу начнёт создавать открытку — "
-            "без отдельного подтверждения.\n\n"
+            "<b>MoodMuse</b> — бот для тёплых открыток и картинок: изображение, надпись на нём и подпись под ним.\n\n"
+            "<b>Создание</b>\n"
+            "Нажмите «Создать открытку» и выберите, как удобнее:\n"
+            "🧩 <b>Выбрать из вариантов</b> — идея или повод, настроение, стиль, надпись; "
+            "по желанию повод, адресат, ограничения, сообщение под картинкой и подпись.\n"
+            "💬 <b>Опишу своими словами</b> — расскажите всё одним сообщением, "
+            "а бот спросит только то, что действительно важно.\n\n"
+            "Надпись на картинке — ваш точный текст, предложение ИИ (появится на картинке только после "
+            "вашего одобрения) или без надписи.\n"
+            "Перед созданием бот покажет сводку, где можно поправить любой пункт. "
+            "Картинка создаётся только после кнопки «Создать».\n\n"
             "<b>Команды</b>\n"
             "/start — главное меню\n"
             "/cancel — отменить и вернуться в меню\n"
@@ -925,18 +928,17 @@ MESSAGES: dict[str, dict[Lang, str]] = {
             "Лимит генераций в сутки (кроме админов)."
         ),
         "en": (
-            "<b>MoodMuse</b> makes warm greeting cards: art plus a caption for any occasion.\n\n"
-            "<b>Creating a card</b>\n"
-            "1) who it’s for (clients, colleagues, loved ones)\n"
-            "2) holiday or occasion (“just because” is fine); for a birthday or anniversary, "
-            "optionally an age, date or period\n"
-            "3) image idea: Surprise me or custom wishes\n"
-            "4) image style\n"
-            "5) caption style\n"
-            "6) optional greeting/address\n"
-            "7) optional signature\n\n"
-            "After the last step MoodMuse shows a summary and starts creating the card right away — "
-            "there is no separate confirmation.\n\n"
+            "<b>MoodMuse</b> makes warm greeting cards and pictures: an image, an inscription on it and a message under it.\n\n"
+            "<b>Creating</b>\n"
+            "Tap “Create a card” and pick what suits you:\n"
+            "🧩 <b>Choose from options</b> — idea or occasion, mood, style, inscription; optionally occasion, "
+            "recipient, restrictions, a message under the picture and a signature.\n"
+            "💬 <b>Describe it in your own words</b> — tell everything in one message and the bot asks only "
+            "what really matters.\n\n"
+            "The inscription is your exact text, an AI suggestion (it appears on the picture only after you "
+            "approve it) or none.\n"
+            "Before creating, the bot shows a summary where any item can be changed. The image is created only "
+            "after you press “Create”. The creation screens are currently in Russian.\n\n"
             "<b>Commands</b>\n"
             "/start — home menu\n"
             "/cancel — cancel and return to menu\n"

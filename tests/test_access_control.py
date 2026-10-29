@@ -34,7 +34,7 @@ from aiogram.types import Chat, File, Message, PhotoSize, Update
 
 import bot as bot_module
 from config import get_settings
-from handlers import admin_router, main_router, profile_router
+from handlers import admin_router, creation_router, main_router, profile_router
 from handlers.middlewares import ACCESS_NOTICE_INTERVAL_SECONDS, AccessMiddleware, MaintenanceMiddleware
 from handlers.states import CardStates, ProfileStates
 from services.card_generation import CardTexts, GeneratedCard
@@ -310,7 +310,7 @@ def make_harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
     # The production routers are module-level singletons and aiogram lets a router join only one
     # Dispatcher, so detach them to give the next test its own Dispatcher.
-    for router in (admin_router, profile_router, main_router):
+    for router in (admin_router, profile_router, creation_router, main_router):
         router._parent_router = None
 
 
